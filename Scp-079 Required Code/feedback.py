@@ -61,13 +61,24 @@ HOST = "https://ntfy.sh"
 # plan and set anonymous access to write-only, so the world may publish and
 # only the owner may subscribe. That is a genuine access control rather than
 # a speed bump. Self-hosting ntfy achieves the same for free plus a server.
+# ONE topic, not three. Three meant three separate subscriptions on the
+# owner's phone to see everything, and a bug report is no use sitting in a
+# feed nobody remembered to add. The category moved into the TITLE instead,
+# so the notification itself says which kind it is:
+#
+#     Feedback-Bug
+#     the chain flicker fired twice in a row
+#
+# ntfy shows the title in bold above the body, so the feed stays sorted by
+# eye without needing separate channels.
 _K = b"079-terminal"
+_TOPIC = "Q1RJHUNcXwsMCwUOUVRSAEcUAAcGBAcHW1IMFA=="
+
+# category -> (notification title, ntfy tag)
 _T = {
-    "bug": ("Q1RJHUNcXw8cCRJBAA5TQwVTQ1kKCw==", "SCP-079 Bug", "bug"),
-    "suggestion": ("Q1RJHUNcXx4cCQYJQ0NQQhoWX1sKXBgFSk1aHwQ=",
-                   "SCP-079 Suggestion", "bulb"),
-    "other": ("Q1RJHUNcXwsMCwUOUVRSABcQBBhQDQJVXkI=",
-              "SCP-079 Feedback", "speech_balloon"),
+    "bug": ("Feedback-Bug", "bug"),
+    "suggestion": ("Feedback-Suggestion", "bulb"),
+    "other": ("Feedback-Other", "speech_balloon"),
 }
 
 
@@ -88,8 +99,8 @@ class _Topics(dict):
     """
 
     def __getitem__(self, key):
-        blob, title, tag = _T[key]
-        return (_reveal(blob), title, tag)
+        title, tag = _T[key]
+        return (_reveal(_TOPIC), title, tag)
 
     def __contains__(self, key):
         return key in _T

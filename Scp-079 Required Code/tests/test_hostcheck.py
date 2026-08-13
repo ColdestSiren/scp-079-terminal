@@ -279,15 +279,32 @@ check("the username is NOT in the body",
 check("no home path leaks in", "users\\" not in payload["body"].lower())
 check("no file paths at all", ":\\" not in payload["body"])
 
-check("each category has its own topic",
-      len({feedback.TOPICS[k][0] for k in feedback.TOPICS}) == len(feedback.TOPICS))
-check("topics carry an unguessable suffix",
-      all(len(t[0].split("-")[-1]) >= 6 for t in feedback.TOPICS.values()))
-check("topics are namespaced to this project",
-      all(t[0].startswith("scp079-") for t in feedback.TOPICS.values()))
-# Separate feeds from the other project, so one does not drown the other.
-check("not reusing the fish.exe topics",
-      all("fishexe" not in t[0] for t in feedback.TOPICS.values()))
+# ONE topic now, not three. Three meant three subscriptions on the owner's
+# phone to see everything, and a bug report in a feed nobody added is no
+# better than no bug report.
+topics = {feedback.TOPICS[k][0] for k in feedback.TOPICS}
+check("everything goes to a single topic", len(topics) == 1)
+only = topics.pop()
+check("it is namespaced to this project", only.startswith("scp079-"))
+check("it carries an unguessable suffix", len(only.split("-")[-1]) >= 10)
+check("not reusing the fish.exe topics", "fishexe" not in only)
+
+# The category moved into the TITLE, which is what ntfy shows in bold above
+# the body - so the feed is still sortable by eye without separate channels.
+titles = {feedback.TOPICS[k][1] for k in feedback.TOPICS}
+check("each category still has its own title", len(titles) == 3)
+check("titles are prefixed consistently",
+      all(t.startswith("Feedback-") for t in titles))
+check("a bug is titled Feedback-Bug",
+      feedback.TOPICS["bug"][1] == "Feedback-Bug")
+
+# THE POINT OF ENCODING THEM. The client has to reach the topic, so this is
+# obscurity and the source says so - but it must at least not be greppable,
+# or publishing the repo hands the address to anyone who scrolls past.
+_src = open(os.path.join(APP, "feedback.py"), encoding="utf-8").read()
+check("the topic is not a plaintext string in the source", only not in _src)
+check("the source is honest about what that achieves",
+      "OBSCURITY, NOT SECURITY" in _src)
 
 for args, why in ((("bug", ""), "an empty note"),
                   (("bug", "   \n  "), "whitespace only"),
