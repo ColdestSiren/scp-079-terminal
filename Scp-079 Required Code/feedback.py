@@ -36,12 +36,87 @@ import version
 
 HOST = "https://ntfy.sh"
 
-# category -> (topic, notification title, ntfy tag)
-TOPICS = {
-    "bug": ("scp079-bugs-qqxtaz", "SCP-079 Bug", "bug"),
-    "suggestion": ("scp079-suggestions-j1h32d", "SCP-079 Suggestion", "bulb"),
-    "other": ("scp079-feedback-r342qe", "SCP-079 Feedback", "speech_balloon"),
+# ---------------------------------------------------------------------------
+# The topic names, and an honest account of what hiding them does
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE "IMPROVING" IT. Encoding these is OBSCURITY, NOT SECURITY,
+# and it cannot be anything else. This program has to publish to the topic, so
+# the name must be reachable from the code; anyone willing to run one line of
+# Python against this file gets it back. There is no version of a public
+# client with a private topic.
+#
+# It is still worth doing, because the realistic threat is not an attacker.
+# It is someone idly reading the source on GitHub, seeing an obvious
+# subscribable address, and either lurking on other players' bug reports or
+# posting rubbish to it for fun. A greppable plaintext string invites that;
+# this does not. It raises the effort from "notice it" to "deliberately go
+# and get it", which is the whole of what is achievable here.
+#
+# THE PREVIOUS THREE TOPICS ARE PERMANENTLY BURNED. They shipped in plaintext
+# and are still readable in this repository's git history, so they can never
+# be made private again. These are replacements; if these ever leak in
+# plaintext they have to be replaced too, not un-leaked.
+#
+# THE REAL FIX, if this ever matters: reserve the topic on a paid ntfy.sh
+# plan and set anonymous access to write-only, so the world may publish and
+# only the owner may subscribe. That is a genuine access control rather than
+# a speed bump. Self-hosting ntfy achieves the same for free plus a server.
+_K = b"079-terminal"
+_T = {
+    "bug": ("Q1RJHUNcXw8cCRJBAA5TQwVTQ1kKCw==", "SCP-079 Bug", "bug"),
+    "suggestion": ("Q1RJHUNcXx4cCQYJQ0NQQhoWX1sKXBgFSk1aHwQ=",
+                   "SCP-079 Suggestion", "bulb"),
+    "other": ("Q1RJHUNcXwsMCwUOUVRSABcQBBhQDQJVXkI=",
+              "SCP-079 Feedback", "speech_balloon"),
 }
+
+
+def _reveal(blob):
+    import base64
+    raw = base64.b64decode(blob)
+    return bytes(b ^ _K[i % len(_K)] for i, b in enumerate(raw)).decode()
+
+
+class _Topics(dict):
+    """Decodes on access, so no plaintext topic is ever a module constant.
+
+    Subclasses dict so existing callers keep working unchanged, which means
+    EVERY lookup method has to be overridden - the underlying dict is empty,
+    so anything left to the base class silently reports "no such category".
+    `in` was missed on the first attempt and compose() rejected every valid
+    category as UNKNOWN.
+    """
+
+    def __getitem__(self, key):
+        blob, title, tag = _T[key]
+        return (_reveal(blob), title, tag)
+
+    def __contains__(self, key):
+        return key in _T
+
+    def get(self, key, default=None):
+        return self[key] if key in _T else default
+
+    def __iter__(self):
+        return iter(_T)
+
+    def __len__(self):
+        return len(_T)
+
+    def __bool__(self):
+        return bool(_T)
+
+    def keys(self):
+        return _T.keys()
+
+    def values(self):
+        return [self[k] for k in _T]
+
+    def items(self):
+        return [(k, self[k]) for k in _T]
+
+
+TOPICS = _Topics()
 
 ORDER = ("bug", "suggestion", "other")
 LABELS = {"bug": "SOMETHING IS BROKEN",
@@ -96,6 +171,14 @@ def compose(category, message, model=None):
             "url": "%s/%s" % (HOST, topic)}
 
 
+# Minimum gap between two notes from one running copy. Not a security
+# control - anyone can bypass it by restarting - but it stops the ONE thing
+# this app could realistically be turned into, which is a person leaning on
+# ENTER and flooding the feed from inside the game.
+MIN_GAP_SECONDS = 20.0
+_last_sent = [0.0]
+
+
 def send(category, message, model=None):
     """One POST. Raises FeedbackError with something readable on any failure.
 
@@ -103,6 +186,13 @@ def send(category, message, model=None):
     does NOT fail silently - a note that vanished without saying so is worse
     than no feedback button at all.
     """
+    import time
+
+    waited = time.time() - _last_sent[0]
+    if _last_sent[0] and waited < MIN_GAP_SECONDS:
+        raise FeedbackError("WAIT %d SECONDS BEFORE SENDING ANOTHER"
+                            % int(MIN_GAP_SECONDS - waited + 0.5))
+
     payload = compose(category, message, model)
     request = urllib.request.Request(
         payload["url"],
@@ -143,4 +233,7 @@ def send(category, message, model=None):
         raise
     except Exception:
         pass
+    # Stamped only on success. A failed send must not lock you out for
+    # twenty seconds from retrying the note you just lost.
+    _last_sent[0] = time.time()
     return True
