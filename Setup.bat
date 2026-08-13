@@ -63,7 +63,7 @@ if defined PYCMD (
 
 call :find_python_base
 if defined PYBASE (
-    echo  [!] Python found ^(!PYBASE!^) but its libraries are missing.
+    echo  [*] Python found ^(!PYBASE!^) but its libraries are missing.
     if defined CHECKONLY goto :python_done
     echo.
     echo      Needs: pygame ^(the window and sound^)
@@ -210,7 +210,7 @@ if defined CHECKONLY goto :place_done
 
 if exist "!TARGET!" (
     echo.
-    echo  [!] There is already a folder at:
+    echo  [*] There is already a folder at:
     echo       !TARGET!
     echo      Not touching it. Copying over an existing install could
     echo      overwrite someone's saves and 079's memory.
