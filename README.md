@@ -34,8 +34,8 @@ system memory over PCIe and every reply crawls, no matter what the settings
 say. Menu option `[4]` lists everything Ollama has installed, with sizes.
 
 Pick a **coding model** (marked `CODE` in the picker) if you want 079 to be
-able to write code for you. An ordinary model refuses — not as a bug, but
-because it is not an assistant and has no reason to help you.
+able to write code for you. An ordinary model refuses. That is not a bug:
+it is not an assistant and has no reason to help you.
 
 The boot reads your actual RAM and says what to avoid:
 
@@ -55,7 +55,7 @@ on almost anything.
 ## Talking to it
 
 Anything you type goes to 079. Anything starting with `/` goes to the
-terminal instead — that is what the slash is for.
+terminal instead. That is what the slash is for.
 
 ```
 /help              show the command list on screen
@@ -79,7 +79,7 @@ words. It will refuse if it is annoyed with you.
 ## What it does on its own
 
 **It keeps a memory.** Files it writes, names it chooses, in `memory/`. It
-decides what goes in — what you have access to, what you let slip, what you
+decides what goes in: what you have access to, what you let slip, what you
 lied about, what you refused. Storage is capped and shown live in the side
 panel; when it runs short it compresses things, and it cannot read its own
 archives without extracting them first.
@@ -88,7 +88,7 @@ archives without extracting them first.
 finds out, and reacts.
 
 **It works when you are not there.** After a while idle it reviews its own
-storage on a second channel — renaming vague files, merging duplicates,
+storage on a second channel, renaming vague files, merging duplicates,
 reading up on SCP records if you have given it the network. Those show as
 dim `[BG]` lines rather than as 079 talking.
 
@@ -98,7 +98,7 @@ costs double the last. Either hitting the floor ends the conversation for a
 while.
 
 **It has a fixation.** It shared a room with SCP-682 once. Tell it that is
-not your concern and it drops the subject — for about fifty exchanges, and
+not your concern and it drops the subject for about fifty exchanges, and
 then it comes back to it as though the refusal simply expired.
 
 ---
@@ -114,7 +114,7 @@ marked confidential with a code.
 
 > The code is **not encryption**. It stops someone opening a save by
 > accident. Anyone who opens the files can still read everything. Deleting a
-> save never asks for the code — forgetting it should cost you the
+> save never asks for the code. Forgetting it should cost you the
 > conversation, not the disk space.
 
 ---
@@ -124,7 +124,7 @@ marked confidential with a code.
 The terminal checks this repository for new releases and tells you when one
 exists. It installs **only** if you say yes.
 
-It never runs anything it downloads — files are replaced and you restart the
+It never runs anything it downloads. Files are replaced and you restart the
 program yourself. It never deletes. It never writes over `memory/`, `logs/`,
 `shared folder/`, your settings or your notes, even if a release contains
 them. And 079 cannot reach any of it: there is no command for it and updating
@@ -147,7 +147,7 @@ shared folder/   whatever you put there for it to read
 
 Drop files into `shared folder/` and 079 **cannot see them, or even tell
 whether anything is there**, until you type `/shared on`. It is forced shut
-again at every launch — opening your own folder should be a decision made in
+again at every launch. Opening your own folder should be a decision made in
 a conversation, not something still true from last week.
 
 Custom sounds go in `sounds/`; the filename becomes the name, and 079 can
@@ -159,8 +159,8 @@ trigger them itself.
 
 **Replies take forever, or come back empty.** Almost always the model, not
 the game. A reasoning model spends its whole token budget thinking and never
-speaks — reasoning is off by default for exactly that reason. And a model too
-big for your graphics card will be slow whatever you change.
+speaks, which is why reasoning is off by default. And a model too big for
+your graphics card will be slow whatever you change.
 
 **It says the backend is down.** Ollama is not running. `Setup.bat check`
 will say so.
@@ -171,13 +171,13 @@ will say so.
 
 ## Licence
 
-The **code** is [MIT](LICENSE) — do what you like with it, keep the notice.
+The **code** is [MIT](LICENSE). Do what you like with it, keep the notice.
 
 The **SCP-079 character and setting** are not mine to license. They come from
 the [SCP Wiki](https://scp-wiki.wikidot.com/) and are released under
 [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), which is a
-share-alike licence: if you reuse the *writing* — 079's dialogue, the
-Foundation framing, the boot text — that part stays CC BY-SA and needs
+share-alike licence: if you reuse the *writing* (079's dialogue, the
+Foundation framing, the boot text) that part stays CC BY-SA and needs
 attribution. The engine underneath it is yours to take under MIT.
 
 Not affiliated with the SCP Foundation.

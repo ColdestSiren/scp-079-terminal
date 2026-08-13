@@ -40,6 +40,14 @@ backup/
 Add later/
 
 
+# The development notes. Every session's changes, the bugs, the measurements,
+# the reasoning. Genuinely useful to keep - just not published.
+Suggestions.txt
+
+# Reference material from OTHER projects, kept here to look at while working.
+# Not part of the terminal, and it would ship inside every release zip.
+Use as examples/
+
 # --- build and run droppings -----------------------------------------------
 __pycache__/
 *.py[cod]
@@ -71,6 +79,3 @@ $RECYCLE.BIN/
 # sounds/           ships the explosion gifs and the mp3; the easter eggs
 #                   silently do nothing without them
 # Scp-079.png       the terminal's own image
-# Suggestions.txt   the running changelog. It is in updater.py's PROTECTED
-#                   list too, so shipping it can never overwrite a player's
-#                   own copy.
