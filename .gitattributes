@@ -1,0 +1,31 @@
+# Line endings.
+#
+# THIS FILE IS LOAD-BEARING, NOT TIDINESS. A .bat file with LF-only line
+# endings breaks `call :label` and `goto :label` - cmd.exe seeks labels by
+# byte offset and gets it wrong. Setup.bat shipped that way and failed at
+# STEP 1 with "The system cannot find the batch label specified", which is
+# the first thing a new player ever runs.
+#
+# Without these rules the ending depends on each machine's core.autocrlf,
+# so the same commit works for one person and is broken for the next, and
+# the bug reports make no sense.
+* text=auto
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+*.vbs  text eol=crlf
+
+# Python does not care, and LF keeps diffs clean across machines.
+*.py   text eol=lf
+*.txt  text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+
+# Never touched: rewriting bytes inside these corrupts them.
+*.png  binary
+*.gif  binary
+*.mp3  binary
+*.wav  binary
+*.ogg  binary
+*.dat  binary

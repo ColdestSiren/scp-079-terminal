@@ -1,0 +1,2 @@
+Generated render cache. Rebuilt automatically if deleted.
+Editing anything in here will not do what you want.

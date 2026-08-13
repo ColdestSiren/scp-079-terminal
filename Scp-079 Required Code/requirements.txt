@@ -1,0 +1,12 @@
+# Everything the terminal needs beyond the standard library.
+# Verified by tests/../_audit-style import scan: these two, nothing else.
+
+# The window, the CRT rendering, audio playback, input.
+pygame>=2.5
+
+# Decodes animated GIFs for the explosion easter egg. pygame.image.load
+# returns only the FIRST frame of a GIF and silently ignores the rest, which
+# looks like it works right up until nothing moves.
+# Optional: without it the game runs normally and the animation just does not
+# play. Setup.bat installs it anyway so the joke works out of the box.
+Pillow>=10.0

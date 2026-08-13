@@ -1,0 +1,76 @@
+# SCP-079 // CONTAINMENT TERMINAL
+#
+# Two different reasons a thing is listed here, and they are worth keeping
+# straight:
+#
+#   PRIVATE   it is yours and publishing it would expose your own play - or
+#             worse, hand every friend a copy of YOUR 079.
+#   HARMFUL   the updater writes release files over an install. Anything in
+#             the release that a player also owns would overwrite theirs, so
+#             it must never be in the zip in the first place.
+#
+# updater.py has its own PROTECTED list covering the same paths, so an update
+# refuses to write them even if one slips into a release. This is the first
+# of those two locks, not the only one.
+
+
+# --- 079's own data. PRIVATE and HARMFUL. ----------------------------------
+# memory/ is what it chose to keep about YOU. logs/ holds the transcripts,
+# its hostility and the session count. Committing either publishes your
+# conversations and gives everyone who clones it your 079 instead of a fresh
+# one that has never met them.
+memory/
+logs/
+
+# What you handed it. Yours, and nobody else's business.
+shared folder/
+
+# Settings, chosen model, save-slot index. Overwriting a friend's would reset
+# their setup on every update.
+Scp-079 Required Code/config.json
+
+# What the updater keeps when it replaces files. Local history of one machine.
+backup/
+
+
+# The author's staging folder for assets not yet wired in. Source images that
+# have already been converted into assets/cache/ live here at full size, so
+# shipping it would double their weight in the repo AND spoil the easter egg
+# for anyone who opened the folder.
+Add later/
+
+
+# --- build and run droppings -----------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Headless screenshot output (main.py --shot). This was 69 MB of the folder
+# on its own - render checks pile up fast and none of it is source.
+_shots/
+*.shot.png
+
+
+# --- windows ---------------------------------------------------------------
+desktop.ini
+Thumbs.db
+ehthumbs.db
+$RECYCLE.BIN/
+
+
+# --- editors ---------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+
+
+# --- deliberately NOT ignored, so the notes stay with the code --------------
+# sounds/           ships the explosion gifs and the mp3; the easter eggs
+#                   silently do nothing without them
+# Scp-079.png       the terminal's own image
+# Suggestions.txt   the running changelog. It is in updater.py's PROTECTED
+#                   list too, so shipping it can never overwrite a player's
+#                   own copy.

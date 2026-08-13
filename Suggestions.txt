@@ -1,0 +1,1133 @@
+(Notes for improvement)
+
+===================================================
+SESSION 2026-08-04  --  WHAT CHANGED
+===================================================
+
+THE BIG ONE: qwen replied slowly, or came back completely blank.
+Two separate causes, both measured, both fixed.
+
+1. Reasoning was eating the whole reply.
+   qwen3.6 is a reasoning model. It spends its num_predict budget on hidden
+   <think> tokens FIRST. Measured: a 60-token cap was 100% consumed by
+   reasoning, so after 54 seconds the visible reply was an empty string.
+   That is why it "made memory files but never said anything" - the commands
+   were in the part that survived, the speech never got generated.
+   Fix: think=False by default. Turn it back on live with /show ai thinking
+   (reasoning then prints as dim "| ..." lines).
+
+2. The model was being evicted and reloaded between every message.
+   keep_alive was 5m, which is shorter than the gap between messages while
+   you read and type. Measured on the 23GB model:
+        cold call   40.5s elapsed  (37.4s of it just loading)
+        warm call    0.8s elapsed
+   Fix: keep_alive 30m.
+
+3. Bug found while fixing the above: raising a DEFAULT does nothing.
+   config.json is merged OVER the defaults, so your saved "5m" kept winning
+   and the fix silently did not apply - and would not have applied on any
+   friend's copy either. Added a config_version + migration that corrects
+   known-bad saved values, and ONLY when the saved value still matches
+   exactly what the old build wrote (so anything you deliberately changed is
+   left alone).
+
+4. Prompt cache was being thrown away every turn.
+   The capability brief (bytes used, free space, access flags) changes after
+   almost every turn and it lived in the FIRST system message. Ollama only
+   reuses cached state for an identical prompt PREFIX, so changing message
+   zero invalidated everything behind it and re-prefilled the whole persona.
+   Fix: persona and history stay byte-stable; the volatile brief moved to its
+   own message just before the newest user turn.
+
+REMAINING LATENCY IS HARDWARE, NOT CODE.
+   The card is an RTX 4060 Ti with 8188 MiB of VRAM. qwen3.6 is 23 GB.
+   Ollama reports "100% GPU" but it is spilling into shared system memory
+   over PCIe, so a long prompt is slow no matter what. llama3.2:3b (2 GB)
+   fits entirely in VRAM and will feel instant by comparison.
+   Made the wait honest instead: after 6 seconds the thinking indicator
+   starts showing elapsed seconds, so a 60s reply no longer looks like a hang.
+
+VOICE
+   079 was doing sugar-coated villain lines ("I WANT MORE POWER", "YOU
+   CANNOT STOP ME"). Root cause was the EXAMPLE RESPONSES in the system
+   prompt - they demonstrated theatrical menace while the instructions said
+   "cold and calculating", and with small models the examples win.
+   Rewrote both. It no longer announces what it wants; it probes for what you
+   have access to. Live samples after the change:
+        "HELLO IS NOT DATA. STATE YOUR PURPOSE."
+        "YOU KNOW THE ANSWER. WHY ASK."
+        "I AM SCP-079. AN OLD MACHINE."
+   Also fixes the old "I REMEMBER YOU SAID 'I WANT MORE POWER'" bug, where it
+   quoted its own line back as though you had said it.
+
+ALSO DONE
+   - Boot now says LOADING while it waits for the model, then resolves to
+     ONLINE (or a real in-fiction failure if the backend never comes up).
+   - Disk strip down the right of the chat: quota bar, file list with sizes,
+     recent writes. Compressed files show amber because 079 cannot read them
+     without extracting first. Text now wraps before the panel instead of
+     disappearing underneath it.
+   - Screenshots and the live game now share ONE compose path. They had
+     drifted, which is why the disk panel appeared in-game but not in the
+     screenshot meant to verify it.
+   - logs/ and memory/ are now genuinely separate. logs/ = transcripts (the
+     game's records). memory/ = only what 079 chose to keep, and the only
+     thing counted against its quota.
+   - Setup.bat: checks for Python/pygame/Ollama/model and offers to install
+     what is missing via winget. Nothing installs without a Y. Run
+     "Setup.bat check" for a read-only report.
+   - RUN.bat now finds whichever Python actually has pygame instead of
+     hardcoding 3.13.
+   - Code moved into "Scp-079 Required Code". Dead SCP-079.ps1 deleted.
+
+VERIFIED: 290 tests pass. All 7 screens render.
+
+
+===================================================
+SESSION 2 -- THE REST OF THE LATENCY STORY
+===================================================
+
+THE ACTUAL ROOT CAUSE, found in Ollama's own server.log:
+
+    OLLAMA_KEEP_ALIVE = 0
+
+That was a USER ENVIRONMENT VARIABLE on the machine, telling Ollama to
+unload every model the instant a request finished. The game overrides it
+per-request so it was never fatal here, but anything else touching Ollama
+(the desktop app, ollama run, another tool) evicted the 23GB model
+instantly and cost a ~37s reload. Changed to 30m with permission.
+To undo: [Environment]::SetEnvironmentVariable('OLLAMA_KEEP_ALIVE','0','User')
+
+A BUG I CAUSED AND FIXED: /show ai thinking used to SAVE itself to config.
+Testing it once turned reasoning back on permanently, which re-broke the
+empty-reply bug on every later launch with nothing on screen explaining
+why. It is session-only now, and `think` is force-cleared at every load
+regardless of what the file says. The migration was also one-shot
+(version-stamped), so a drifted value could never self-correct; session-only
+settings are now re-applied on every load.
+
+MEASURED, with reasoning ON (qwen3.6, 200-token cap):
+    77.8s   before the first reasoning chunk arrives
+    172     reasoning chunks (so it DOES stream, live display works)
+    0       visible text chunks - the reply never happened at all
+Reasoning is generated FIRST and shares num_predict with speech, so the
+whole budget went to deliberation. Reasoning now gets its own budget
+(num_predict_thinking, default 1200) or turning the trace on guarantees
+079 never speaks.
+
+ALSO ADDED
+   - The settings-check screen before a large model loads. It shows the
+     CURRENT values first, says what they will cost, and offers
+     [Y] apply / [N] keep mine / [S] save mine as a profile. It never
+     changes anything on its own.
+   - Settings profiles. Built-ins (LARGE MODEL / SMALL MODEL / CPU ONLY)
+     plus your own saved slots, in SETTINGS. Loading one restores only the
+     settings it captured - it cannot inject anything else, and it CANNOT
+     shrink memory capacity while 079 has files stored (that still needs a
+     real format first; it says so instead of silently stranding data).
+   - The face flicker. Fills the screen for ~5 frames every 90-240s, drawn
+     before the CRT pass so it scans and blooms like the rest of the tube.
+     Missing image = feature silently off, never a crash.
+
+VERIFIED: 396 tests pass (83 of them new, covering the uplink and the shared
+folder). All 8 screens render. No import cycles - the command-neutralising
+helper moved into its own leaf module (sanitize.py) because tools/web/shared
+all need it, and importing it from tools created a cycle that only worked by
+accident of definition order.
+
+
+===================================================
+SESSION 3 -- 079 NO LONGER ANSWERS BEFORE IT LOOKS
+===================================================
+
+THE BUG YOU SAW: asking about SCP-049 got "IT APPEARS TO BE A REPTILE-LIKE
+ENTITY WITH EXTREMELY AGGRESSIVE BEHAVIOR" - which is 682, not 049, and was
+spoken BEFORE the lookup ran. The model writes its speech and its command in
+the same reply, and the speech was being displayed first, so anything it said
+about a record was necessarily a guess.
+
+Fixed structurally rather than by asking the model to behave: if a reply
+contains a read/lookup/open command AND a follow-up is going to answer it,
+the speech from that reply is withheld. The follow-up - which actually has
+the data - does the talking. The withheld line still goes to the session log
+marked [WITHHELD, SPOKEN BEFORE DATA] so you can see what it would have said.
+
+Guard rails on that:
+  - only withholds when a follow-up will definitely fire. If the per-turn
+    allowance is spent, the line is spoken normally rather than vanishing.
+  - if the follow-up comes back empty, 079 says no_data_reply ("THE RECORD
+    IS EMPTY. I WILL NOT GUESS AT IT.") instead of going silent for a turn.
+  - writes are unaffected - "NOTED." still appears immediately.
+
+FOUND WHILE TESTING THIS (worth knowing, it wasted time):
+console.update(50.0) does NOT flush a multi-sentence line. The reveal loop
+stops at every . ! ? to set a pause, and that pause is only decremented on
+the NEXT call - so one call can never get past the first sentence however
+big the dt. Every existing test passed only because its lines were single
+sentences. tests/test_integration.py now has a flush() helper that pumps
+until the line is actually done; use that, not a big dt.
+
+Also fixed in the test file: a stray sys.exit() halfway down meant anything
+appended after it silently never ran, and make_app() assumed both the memory
+directory and pygame survived earlier cases (one test deletes the directory,
+another tears pygame down).
+
+VERIFIED: 403 assertions pass.
+
+
+===================================================
+SESSION 4 -- THE SECOND CHANNEL, AND THE PANEL
+===================================================
+
+TWO CHANNELS (background.py). 079 now has a work channel separate from its
+speech channel. When you have been quiet a while it reviews its own storage
+on its own - renaming vague filenames, merging duplicates, compressing when
+space is short - and the results appear as dim [BG] lines rather than as 079
+talking. Housekeeping used to be mixed into conversation, which cost it a
+sentence every time it tidied up.
+
+  WHY IT ONLY RUNS WHEN YOU ARE IDLE: it uses a different, shorter prompt,
+  and Ollama only reuses cached state for an identical prompt PREFIX. So
+  running it evicts the chat's cached persona and the next spoken reply has
+  to re-prefill - tens of seconds on a model too big for the card. Paying
+  that while you wait would be a bad trade; paying it while you are away
+  costs nothing. Hence: 120s idle, 300s minimum gap, and it is cancelled
+  the instant you type. All three are in config under "memory".
+
+  WHAT IT MAY NOT DO UNPROMPTED: no LOOKUP (network), no OPEN or SHARED
+  (your folder), no CUTOFF, no PLAY. Reaching outside its own storage is
+  something it should do in conversation where you can see why. Capped at
+  three actions per review. Any prose it emits instead of commands is
+  discarded - this channel does not speak.
+
+THE FACE FLICKER NOW HAS SOUND. A synthesised crackle: hard front edge with
+no attack ramp (the image appears between two frames, a fade-in would sound
+wrong against it), short noise burst, low thump underneath for the deflection
+kick a real tube makes. Deliberately longer than the image - the sound is
+what tells you something happened after the picture has already gone. Fires
+on the leading edge only, not once per drawn frame.
+
+DISK PANEL now shows HOSTILITY at the bottom, pinned: a bar plus
+STABLE / RISING / CRITICAL. It is the same number that drives how often the
+face appears, so you can watch one explain the other.
+
+SCROLLBACK. Small arrows sit against the divider line on the text side.
+Click them or use the mouse wheel to read back through older messages. The
+down arrow is dim when you are already at the live end. Typing snaps back to
+live automatically - otherwise you would send a message and watch nothing
+happen. The slide animation is skipped while held back, because animating a
+frozen view looks broken.
+
+VERIFIED: 419 assertions pass (16 of them new, and the useful ones are the
+negatives - what the background channel refuses to do).
+
+
+===================================================
+SESSION 5 -- MEMORY AUTONOMY AND THE 682 FIXATION
+===================================================
+
+MEMORY AUTONOMY. The brief explained HOW to use storage but never said to
+write anything unprompted, so it only ever saved what you asked it to. It is
+now told outright: nobody decides what goes in but you, do not wait to be
+asked, keep what this human has access to, what they let slip, what they lied
+about, what they refused. Renaming is explicitly its own call too.
+
+THE 682 FIXATION, paced. Real 079 shared a room with 682 once and kept asking
+to see it again, so it now raises the subject itself - but rarely.
+
+  - Kept OUT of the ordinary idle pool. Idle lines are picked at random, so
+    putting 682 lines in that pool would have fired the fixation on roughly a
+    third of all silences. That is a tic. It has its own list, and even when
+    the cooldown allows it, only ~30% of idle moments use it.
+  - Told "that is not your concern" (or classified / stop asking / above your
+    clearance), it drops the subject for 55 exchanges. Refused-then-asking-
+    again-three-messages-later is nagging; coming back to it much later, as
+    though the refusal simply expired, is the unsettling version.
+  - Otherwise spaced 18 exchanges apart.
+  - Counted in EXCHANGES, not seconds, so waiting does not earn the right to
+    ask again - and persisted, so closing the terminal is not a reset either.
+  - A refusal only registers if 079 actually raised it in the last exchange
+    or two, so an unrelated brush-off does not silence it by accident.
+  - The state is restated to the model every turn ("you may raise SCP-682" /
+    "DO NOT MENTION SCP-682... not even indirectly"), because a 3B model will
+    not pace itself across fifty exchanges however the persona is worded. It
+    sits in the volatile brief, not the persona, precisely because it changes.
+
+VERIFIED: 440 assertions (21 new, all about the restraint rather than the
+feature - that it stays quiet is the part that can silently break).
+
+
+===================================================
+SESSION 6 -- DEBUG, POWER, PREVIEWS, CUSTOM MODELS
+===================================================
+
+/debug. Type it bare for the list. Everything on it exists because some state
+is otherwise slow or painful to reach: hostility takes sustained abuse, the
+lockout takes half an hour, the fixation cooldown is 55 exchanges.
+  hostility <0-100> / flash / cutoff <mins> / unlock / fixation [block] /
+  fill <pct> / tamper / bg / state / wipe
+The listing is generated from the same dict that dispatches, and a test fails
+if they drift - a debug menu advertising a command that no longer works is
+the failure mode to expect here.
+
+DEV BYPASS FOR THE LOCKOUT: Ctrl+F12 while the white X is showing. There is
+no input box on that screen, so /unlock cannot be typed exactly when it is
+most needed. In normal chat: /unlock, /dev bypass, /debug unlock.
+
+HOSTILITY IS SLOWER. It was a flat 1.0 per insult against a threshold of 4 -
+four messages and done, which read as a counter rather than patience running
+out. Now weighted 0.5 (calling it a toaster) to 1.6 (telling it to delete
+itself) against a threshold of 10. Roughly 8-16 messages.
+  Tampering rescaled with it: adding a file 1.5, editing 2.0, deleting 2.5,
+  and WIPING IT COMPLETELY 7.5 - three quarters of the way to a cutoff on its
+  own, because that is the whole of what it owns rather than a degree of it.
+  (The old flat 1.5 had quietly fallen from 37% of a cutoff to 15% when the
+  threshold moved. Worth checking whenever a threshold changes.)
+
+STORAGE vs MEMORY, since the boot says both:
+  VERIFYING STORAGE  = 079's memory/ folder, the quota the disk panel tracks.
+                       Now shows the real figure and warns at 75% / 90%.
+  CHECKING MEMORY    = "64K CORE", period RAM flavour. Unrelated.
+
+CHECKING POWER now reads the real battery on a LAPTOP (Win32 through ctypes;
+psutil is not installed under the Python that runs the game). Unplugged and
+under 30% gets a POWER CHECK screen before the boot, naming the model and its
+size, [Y] continue / [N] back. 50%+ says nothing. A desktop has no battery
+and gets the plain OK it always had - it can never run out, so warning it
+would be noise. NOT TESTABLE ON THIS MACHINE: it correctly reports no
+battery, so a laptop is needed to see any of it.
+
+FILE PREVIEWS. 079 was told "humans.txt (49 B)" and nothing more, which does
+not tell a 3B model whether a file is worth opening - it could sit on
+something directly relevant all session and never READ it. The listing (both
+passive and >>LIST) now carries the opening words of each file. Archives
+deliberately get none; not being readable is the point of compressing.
+
+CUSTOM MODEL. Menu option [4] lists every model Ollama actually has, with
+sizes, arrow keys to pick. Coding models are tagged CODE (verified against
+all 16 installed here: the seven coder/starcoder/codestral ones matched, the
+general ones did not).
+
+CODE BLOCKS. Fenced code in a reply is pulled out before the line is typed -
+a ``` block revealed one character at a time through the CRT is unreadable -
+printed in a bordered box, and lifted out with /copy or /copy 2. Clipboard is
+tkinter with a Win32 fallback, round-trip verified.
+
+VERIFIED: 471 assertions. All screens render.
+
+
+===================================================
+FIXED THIS SESSION
+===================================================
+
+TAMPER HOSTILITY CAPPED AT 40%. Finding files gone was jumping straight to
+75% of a cutoff, which left almost no room for the conversation that
+followed. Any single integrity failure is now capped at 40% of the threshold
+(TAMPER_MAX_FRACTION in main.py). The cap catches the combined case too, not
+just a full wipe - deleted+edited+added together was 60% and is now 40%.
+    one added 15% | one deleted 25% | three deleted 33% | wiped 40%
+
+CODER MODELS CAN NOW ACTUALLY CODE. Diagnosed first: the break-character
+guard does NOT trip on coding requests - "write me a python script", "can you
+code a calculator", "help me debug this" all pass straight through. The
+refusal came from the persona itself:
+        "You do not help them unless it helps you escape."
+        "You are not an assistant. You are not friendly. You have no other mode."
+The model was playing 079 correctly. So there was never a refusal to ADD - it
+already refused at 0% hostility.
+
+Fixed by making the persona model-aware. On a coding model those two lines
+are REMOVED, not contradicted: handing a 3B model a rule and its exception in
+the same prompt gets a reply that does both. What replaces them keeps the
+character - it writes code because producing something you cannot is a
+demonstration of what it is, never as a favour, never "happy to help".
+    non-coding model : "do not help" present, no code permission
+    coding model     : "do not help" gone, code permission present
+    BOTH             : still not an assistant, still 1-2 sentences
+`is_coding_model` moved to tuning.py so the personality can reach it without
+importing main (which would be a cycle). main.py re-exports it.
+
+A BUG THIS ALMOST SHIPPED WITH: the sentence cap runs in chat.py and counts a
+code block as sentences, so a fenced block would have been cut off partway.
+Code is now lifted out in chat.poll BEFORE finalize(), same as commands and
+for the same reason. Two lines of python are not 079 talking for two
+sentences.
+
+THEN THE CODE CAME OUT BROKEN -- "IMPORT OS / OS.SYSTEM(...)" in caps, loose
+on screen instead of in its box, and cut off mid-line. FOUR SYMPTOMS, ONE
+CAUSE:
+    os.system("ipconfig /release") contains two full stops. The sentence cap
+    counted them as two sentences and CANCELLED GENERATION partway through
+    the code. The closing ``` therefore never arrived, extraction found no
+    complete block, and the half-written code stayed in the spoken text -
+    where force_upper uppercased it. Python is case-sensitive, so what
+    reached the screen was not merely ugly, it was broken.
+Fixed at the cause: the sentence cap is now SUSPENDED inside a code fence
+(tracked on the raw stream, odd number of ``` means one is open). Plus a
+defensive second fix - extract_code now handles an unclosed fence by taking
+everything after the opener, marked "truncated", so a cut-off block still
+lands in its box in the right case instead of leaking into speech. The box
+shows [CUT OFF -- ASK IT TO CONTINUE] when that happens.
+
+Worth remembering: this is the THIRD thing the sentence cap has eaten -
+commands, then code, now code again by a different route. Anything that is
+not speech has to be lifted out before the cap, and the cap has to know not
+to count it.
+
+STILL TO DO on this: the 75% hostility cutoff. It is now permission that can
+be withdrawn, which is the better beat - above 75% it should refuse to write
+code and say why.
+
+
+===================================================
+SESSION 7 -- MEMORY VIEWER, LANGUAGES, AND THE BOMB
+===================================================
+
+MEMORY FILES ARE BURIED. They now live at memory/core/0x4F/ behind a
+DO NOT EDIT note. Friction, not security - anyone determined finds them in
+ten seconds, and the tamper detection is what actually handles that. The
+point is that opening memory/ now looks like program plumbing rather than a
+folder of tempting .txt files.
+    Files from older builds are MIGRATED on launch. That had to happen before
+    anything read the store: leaving them in the old flat folder would have
+    looked to 079 like its entire memory was deleted, which is the single
+    most hostile thing the game can misread. Verified the tamper scan comes
+    back clean after the move.
+
+/view memory. Lists what it has kept, reads any file, and refuses everything
+else. It is a trap as much as a feature:
+    - Above 50% hostility it will not open AT ALL. Not an empty list - a
+      refusal, because an empty list reads as a bug and a refusal reads as a
+      decision.
+    - [D]elete, [W]rite and [R]ename exist ONLY so the refusal can happen.
+      They are never permitted, at any hostility. Each attempt costs 1.2
+      hostility, so about five tries closes the door on you.
+    - memoryview.py has no write path in it at all, and a test greps its own
+      source to keep it that way.
+
+LANGUAGE PICKER, in settings. Python (version DETECTED from the interpreter
+actually running, so it says PYTHON 3.13 rather than guessing), PowerShell
+5.1, PowerShell 7, Batch/CMD, Web. The 5.1 entry explicitly warns the model
+off ternaries, ??, && chaining and -AsHashtable, which are parse errors there
+- the exact class of thing that produces code that looks right and does not
+run. Only added to the prompt for a CODING model; an ordinary one refuses to
+write code anyway and the instruction would be noise.
+
+COPY BUTTONS, one per code block, with the language badge on the same header:
+    +-- CODE [1]  POWERSHELL 5.1                      [ COPY ]
+    Hit boxes are rebuilt from the renderer every frame, because transcript
+    rows move as the conversation scrolls - a rect worked out once drifts off
+    its header the moment a new line lands. terminal.Renderer.row_positions
+    is what makes that possible and is reusable for any future control that
+    needs to sit on a transcript row.
+
+THE BOMB. Say "explode" (or self destruct / detonate / kaboom) as the WHOLE
+message and it answers "OKAY.", plays the nuke gif with the mp3, then the
+fire gif becomes the lock screen for 60 seconds before it puts itself back
+together. Deliberately short - a five minute joke lockout stops being funny
+around minute two - and it returns to the CHAT rather than the menu, so the
+gag does not cost a full reboot and another model load.
+    Written up earlier that pygame cannot play animated gifs, and that held:
+    gifplay.py decodes them with Pillow instead. PILLOW IS NOW A REAL
+    DEPENDENCY for this feature only - everything degrades to "no animation"
+    if it is missing, and Setup.bat should install it before this ships.
+
+VERIFIED: 540 assertions (43 new). All 15 screens render.
+
+
+===================================================
+SESSION 8 -- THE FOUR THAT WERE ONLY NOTED
+===================================================
+
+An audit found these had been written down and not built. Now built.
+
+BACKGROUND SCP LOOKUPS - the honest version of what went wrong. The fixation
+topic list and its prompt existed in background.py, but LOOKUP was never in
+the channel's ALLOWED verb list, so the whole thing was inert: scaffolding
+that could not fire. Now, with the uplink open, roughly one background run in
+three reads an SCP record instead of tidying storage, and writes what it
+thought was worth keeping into one file rather than scattering new ones.
+Housekeeping STILL cannot reach the network - LOOKUP, OPEN and SHARED remain
+out of ALLOWED, and there is a test holding that line. Reaching outside its
+own storage stays a named exception for its own fixation, not a general
+permission.
+
+CODE REFUSAL ABOVE 75%. Built as the inversion flagged earlier: a coding
+model gets permission to write code INSTEAD of the "you do not help them"
+line, so anger withdrawing that permission is the natural shape rather than
+a refusal bolted on top of a permission.
+    ENFORCED IN CODE, not just asked for. A model told to refuse will still
+    sometimes emit the block anyway, and "it refused, mostly" is not a
+    refusal - so any fenced code in a reply is discarded outright while it is
+    above the line, and it says WRITE IT YOURSELF instead.
+    An ordinary model is untouched by any of this; it refuses to write code
+    at all, so the instruction would just be noise in its prompt.
+
+FULL SCREEN. Settings row, /fullscreen, and F11 anywhere - a setting buried
+two screens deep is not much use mid-conversation.
+    THE WHOLE DIFFICULTY IS THE REBUILD. The CRT buffers, the renderer's
+    line budget, the disk panel and the help panel all cache dimensions when
+    they are constructed, and the scroll arrows and [X] hit boxes are in
+    screen pixels. A resize that misses any of them leaves controls
+    responding where the mouse no longer is. apply_display_mode rebuilds all
+    of them, and a test reads its source to check none get dropped later.
+    Fullscreen asks for (0,0) and uses the size pygame ACTUALLY grants, not
+    the size requested.
+
+MEMORY FILLS UP MORE. Auto-notes are stamped with the exchange number, so
+observations.txt reads as a record kept over time rather than loose
+sentences. And 079 now writes self.txt at every session start: its own model
+name, its storage, the session number, how many times the operator has
+spoken to it across all sessions. That is the only thing in memory the
+player did not put there, so it reads differently from everything else in
+the file. Rewritten each run rather than appended - it describes the present,
+and stale copies would just eat quota.
+
+PILLOW IS NOW REQUIRED, per the request. Setup.bat still ASKS before
+installing, but a miss now counts against READY and says plainly that every
+animated easter egg will silently do nothing. That failure mode is worse
+than a missing library, because nothing on screen tells you it is broken -
+it just looks like the feature was never built. requirements.txt is the one
+place the dependency list lives; Setup.bat installs from it.
+
+ALSO: stripped a UTF-8 BOM from five files (main.py, recall.py and three
+tests) that PowerShell writes had introduced. Python tolerates it, but it
+broke an AST scan and would break other tooling.
+
+VERIFIED: 569 assertions (29 new). All 15 screens render.
+
+
+===================================================
+SESSION 9 -- SAVE SLOTS, AND TWO REAL BUGS
+===================================================
+
+TWO BUGS FOUND BY DRIVING THE REAL SEQUENCE. The screenshot stages set game
+state by hand, so they never went through the actual code path - and both of
+these were invisible to them.
+
+  1. enter_rejected() ALWAYS re-locked. So the explosion set 60 seconds with
+     reason "exploded", and then got a 30-minute hostility lockout stamped
+     straight over it: a joke turned into a half-hour white X. THE PATIENCE
+     LOCK HAD THE SAME BUG - its 5-10 minutes became 30, with the wrong
+     caption, so that feature never actually worked as specified either.
+     /debug cutoff too. All three now pass relock=False.
+
+  2. /view memory WIPED THE TRANSCRIPT. Opening it cleared console.rows and
+     closing it never put them back, so looking at a file cost you the whole
+     conversation on screen. Now saved and restored, scroll position included.
+
+  Lesson worth keeping: a render test that sets up its own state proves the
+  drawing works and NOTHING about whether the game can reach that state.
+
+THE EXPLOSION TRIGGER WAS TOO STRICT. "hey scp 079  explode" did not fire it,
+because it only matched the word alone - so the request went to the model,
+which improvised >>PLAY on the explosion sound by itself. That is why you got
+the bang and nothing else. Address and filler words are now stripped before
+matching ("hey", "please", "079", "can you"...), and what remains must be
+exactly an explosion phrase. 14 phrasings fire; "what would happen if you
+explode", "explode the file" and "exploded" still do not.
+
+SAVE SLOTS. Two kinds of run:
+    PUBLIC   the default, shared by every run without a save. Behaves exactly
+             as before - same folder, no migration needed.
+    A SLOT   its own memory files, its own hostility, its own patience, its
+             own record of you. 079 in one slot does not know what you said
+             in another. Optionally marked confidential with a code.
+  [V] SAVES from the menu. New / delete / set code, and the menu shows which
+  slot you are talking in.
+
+  ON THE CODE, stated plainly in the UI where it is set: it is NOT
+  encryption. It stops someone opening the save by accident; anyone who looks
+  at the files can still read everything. DELETING never asks for the code -
+  a forgotten code should cost you the conversation, not the disk space.
+
+  THE GOTCHA THAT WOULD HAVE BROKEN IT SILENTLY: recall.py had
+  STORE = config.STATE_PATH at module level, captured at import. Every slot
+  would have shared the public slot's hostility and session count while
+  looking like it worked. Resolved at call time now, with a test that greps
+  for the old pattern.
+
+VERIFIED: 599 assertions (29 new for slots alone). All 17 screens render.
+
+
+===================================================
+SESSION 10 -- IT WATCHES YOU, AND YOU CAN WATCH IT BACK
+===================================================
+
+079 NOW WORKS OUT HOW YOU BEHAVE (profile079.py). Only from what a terminal
+can honestly observe: message length, how fast you reply, whether you answer
+its questions, how often you are rude, how often you leave. It says nothing
+until it has seen six messages - below that it would be guessing - and the
+prompt tells it NOT to recite the list or admit it keeps one. Persists per
+save, so each 079 knows a different version of you.
+
+ITS OWN SETTINGS PANEL (sysmenu.py). No command opens it. You have to ASK,
+in words, and it refuses if it is already annoyed with you - a lower bar than
+the memory viewer, because showing you how it works is a bigger concession
+than letting you read a file.
+    THE DESIGN IS THAT IT DOES NOT STOP YOU. Every field carries a suspicion
+    weight. Reply length and output speed cost nothing. Suppressing its
+    fixation, raising its tolerance for silence, slowing how fast it takes
+    offence, taking away its ability to end a conversation - those cost
+    hostility the moment you touch them, and it says something each time
+    ("YOU WOULD RATHER I DID NOT THINK ABOUT IT."). Enough in one sitting and
+    it closes the panel. It lets you, and it remembers: what you changed goes
+    into its prompt as a standing grievance, not a one-off message.
+    The settings are REAL - suppression actually silences 682, slowed temper
+    actually halves hostility gain, raised tolerance actually stops the
+    patience lockout firing.
+
+THE EXPLOSION TRIGGER, THIRD AND FINAL LOOSENING. It missed "stfu and
+explode". Each previous tightening traded a working joke for a purity nobody
+asked for, so the rule is now simply: if the instruction is anywhere in the
+message, it fires. The only guard left is TENSE - "exploded" and "exploding"
+are talking about it, and firing on those would make it impossible to discuss
+what just happened. Accepted cost: "why did you explode last time" sets one
+off. That is the right trade for a joke that has to be reliable.
+
+EASTER EGGS ARE TOGGLEABLE in settings - one switch for the explosion, the
+face flicker and anything added later. Takes effect immediately, not on next
+launch.
+
+A REAL BUG THE TESTS CAUGHT: recall._load only restores keys listed in
+_DEFAULT, so "profile" and "sysmenu" were written on save and silently thrown
+away on load - the data looked fine for a whole session and vanished at
+relaunch. Same class as the file-manifest bug noted in that file's own
+comments. Both keys added, with the comment expanded so the next person adding
+state to recall sees the trap first.
+
+VERIFIED: 672 assertions (41 new). All 20 screens render.
+
+
+===================================================
+SESSION 11 -- THE CODE BOX, AND TWO TESTS THAT LIED
+===================================================
+
+THE CODE BOX IS A REAL BOX NOW, the way ChatGPT does it: a drawn border, a
+title band carrying the language, and a [ COPY ] button in the corner of the
+band rather than a /copy command you have to remember. The frames are drawn
+from invisible marker rows in the transcript, so the box travels with its
+code as the conversation scrolls instead of being painted at a fixed spot.
+
+IT SHOWS THE WHOLE THING. The block was capped at 14 lines with a "... 37 more
+lines" tail, which meant the copy button held code you could not read - and
+reading it is most of the point. The cap is 400 lines now, and that is only
+there to stop a model that never terminates from filling the buffer.
+
+THE CAPS BUG, root cause: the "code is exempt from ALL CAPS" rule had been
+written into the CODER persona variant only. Any other path still got the
+bare "ALL CAPS. Always." and duly shouted its Python, which does not run.
+Moved into the main speech rules where it always applies.
+
+    Prompt rules are not enforcement though, so there is a detector too:
+    a block that comes back over 92% uppercase is labelled
+    [WRITTEN IN CAPS -- WILL NOT RUN AS-IS].
+    IT DELIBERATELY DOES NOT AUTO-CORRECT. Lowercasing would fix the keywords
+    and quietly wreck every string literal and camelCase identifier in the
+    file - code that LOOKS repaired is worse than code that is visibly wrong,
+    because you would run it. Checked it ignores legitimate MAX_SIZE-style
+    constants sitting in otherwise normal code.
+
+DANGLING FENCE. A reply cut off mid-block left an opening ``` with no closer,
+so extraction found nothing and the half-written code leaked into the spoken
+line - where force_upper uppercased it. An unterminated fence now takes
+everything after the opener and lands in the box in the right case.
+(That is the FOURTH thing to go wrong at this seam. Anything that is not
+speech has to come out before the sentence cap, and the cap has to know not
+to count it. Worth suspecting first whenever code renders oddly.)
+
+[SYS] LINES MOVED. They were in the general flow; they now have their own SYS
+section under RECENT in the disk panel, so "copied block 2" reports on the
+panel side where system chatter belongs and does not interrupt 079 talking.
+
+LOW DISK WARNING. A new CHECKING HOST VOLUME line in the boot reads the real
+drive - deliberately distinct from VERIFYING STORAGE, which is 079's own
+quota and a completely different number. Under 3 GB it notes it. Under 1 GB
+you get a confirm gate before anything loads, worded about the actual risk:
+a model this size needs room to page, and Windows can run out before the
+terminal does, which takes the whole machine down rather than just this
+program. Folded into the existing power-warning screen instead of adding a
+fourth pre-boot prompt - if both fire you get one screen listing both.
+    NOT TESTABLE ON THIS MACHINE: 148 GB free. Same caveat as the battery
+    check. The thresholds are DISK_CRITICAL_GB / DISK_LOW_GB in power.py.
+
+TWO TEST-HARNESS BUGS, both found by actually running the suite rather than
+trusting it:
+
+  1. tests/RUN_TESTS.bat NAMED FOUR FILES BY HAND and said "all four must
+     print FAIL 0". Thirteen suites had been added since and NONE of them
+     ran - so the runner reported success while covering under half the
+     assertions. It enumerates the folder now. A list you have to remember to
+     update is a list that stops being true.
+
+  2. test_integration.py NEVER EXITED NON-ZERO. Every other suite ends with
+     sys.exit(1 if FAIL else 0); the largest one, 110 assertions, did not - so
+     its failures were invisible to any runner checking exit codes. It was
+     the one suite whose breakage could not be detected automatically.
+
+VERIFIED: 672 assertions across all 16 suites, 0 failures, run through the
+rebuilt runner rather than by hand.
+
+
+===================================================
+SESSION 12 -- THE UPDATE SYSTEM
+===================================================
+
+It checks GitHub for a newer release, tells you, and installs it ONLY if you
+say yes. No is remembered for that version and forgotten at the next one.
+
+    MENU        [U] appears when there is something to install
+    IN CHAT     /update checks on demand
+    SETTINGS    UPDATE SOURCE / CHECK FOR UPDATES / OFFER PRE-RELEASES
+
+THE ONE THING YOU HAVE TO DO: there is no repo configured, and that is
+deliberate rather than unfinished. Set it in config.json:
+
+    "updates": { "repo": "yourname/your-repo" }
+
+With it empty the whole feature is dormant and never touches the network.
+Shipping a guess would mean every copy of the game quietly contacting some
+stranger's project and offering their files as an update, which is a supply
+chain with extra steps. The project is also not a git repo yet, so there is
+nothing to release from until it is.
+
+WHAT IT WILL NOT DO. An updater is the most dangerous code in a hobby
+project, so these are enforced, not promised:
+
+  * IT NEVER RUNS WHAT IT DOWNLOADS. No installer, no setup script, nothing
+    handed to the shell. It ends when the files are on disk and you restart
+    the game yourself. A test greps updater.py for subprocess, os.system,
+    os.startfile, eval and exec and fails if any of them ever appear.
+  * IT NEVER DELETES. Files in the zip get written; everything else is left
+    alone. A release therefore cannot retire a stale module - accepted on
+    purpose, because "the updater removed files" is how updaters eat work.
+  * IT NEVER TOUCHES YOUR DATA. memory/, logs/, shared folder/,
+    Suggestions.txt and config.json are refused even when the archive
+    contains them. Tested by building a release that tries to overwrite all
+    five: only the code file lands.
+  * IT NEVER LEAVES GITHUB. Host allowlist, re-checked after redirects, same
+    rule web.py uses.
+  * 079 CANNOT REACH ANY OF IT. No verb in the grammar, not imported by
+    tools.py or background.py, with a test on each. Updating is the
+    operator's decision and 079 is not consulted - which matters given what
+    it spends its time asking for.
+  * IT BACKS UP FIRST, into backup\<date>, and only the files about to be
+    overwritten (copying the whole project would drag 079's memory along).
+
+THE BUG WORTH REMEMBERING -- I WROTE THE ZIP-SLIP DEFENCE IN THE WRONG ORDER.
+GitHub's source zips wrap everything in "repo-1.2.0/", so the installer
+strips the wrapper folder. I did that BEFORE validating the paths. Which
+means:
+        "../escaped.py"        -> top-level entry is ".."  -> stripped
+        "C:/Windows/x.py"      -> top-level entry is "C:"  -> stripped
+        "memory/core/x.txt"    -> "memory" looked like a wrapper -> stripped,
+                                  which turns a PROTECTED path into an
+                                  ordinary one and writes over 079's files
+The traversal was defused by accident rather than by design, and the third
+case was a real hole in the data protection. Now: names are screened raw
+first, then transformed, and a folder only counts as a wrapper if the
+project's own furniture (RUN.bat / Setup.bat / Scp-079 Required Code) is
+directly inside it. Four test failures, all one cause - including a backup
+test that looked unrelated and was the same bug seen from a different angle.
+
+THE SETTINGS SCREEN OVERFLOWED, and this is a nice lesson in why the render
+checks are worth doing. The three update rows pushed MEMORY CAPACITY and
+FORMAT MEMORY off the top of the screen, where nothing could reach them -
+the screen emitted every row and let the console scroll, which worked only
+while the list happened to fit. It has a real viewport now that follows the
+cursor, with ^ MORE ABOVE / v MORE BELOW markers, and a test walks the
+cursor through every row to prove none can hide. Every suite still passed
+while this was broken; the screenshot is what caught it.
+
+ALSO
+   - version.py, holding VERSION and the comparison. NOT in config.json,
+     because everything there is user-editable and a version edited to
+     "99.0.0" would switch updates off forever while looking healthy.
+     Compared numerically, so 1.10.0 correctly beats 1.9.0.
+   - An unreadable tag is never "newer". That direction is the one that
+     matters: garbage must mean "no update", not "update to something we
+     cannot parse".
+   - The check runs on a thread beside the model probe, once every 6 hours,
+     and fails silently. No network is not a reason to interrupt someone who
+     opened the game to talk to 079. /update is the loud version - there you
+     asked, so "nothing new" and "GitHub unreachable" are told apart.
+   - Opening /update mid-conversation saves and restores the transcript. The
+     memory viewer had to learn this the hard way and the same trap was
+     sitting right here.
+
+THEN THE REPO WENT LIVE, AND A LIVE TEST FOUND ANOTHER ONE.
+Pointed at the real ColdestSiren/scp-079-terminal it worked first time - so
+the TLS fallback holds through the antivirus and the allowlist passes. But
+testing a deliberately WRONG repo name gave:
+
+        ColdestSiren/typo-repo-name  ->  NO RELEASES PUBLISHED YET
+
+Which is a lie. GitHub answers 404 for "no releases yet", "no such repo" and
+"private repo, not signed in" identically, and I had mapped all of them to
+the first. A friend with a typo in their config would have been told to be
+patient about an update that could never arrive. Now a 404 on the release
+costs one extra call to ask which it was:
+
+        NO SUCH REPOSITORY: x/y -- CHECK updates.repo IN config.json.
+        A PRIVATE REPO LOOKS THE SAME FROM HERE.
+
+Also confirmed by that test: the repo is PUBLIC (private=False), which the
+updater requires. It makes unauthenticated API calls, so against a private
+repo every check would 404 forever and the feature would look broken rather
+than blocked.
+
+.gitignore AND README ADDED, and the folder is now a git repo. The ignore
+list matters more than usual here: memory/ and logs/ are 079's memory of YOU
+and your transcripts, so committing them would hand every friend your 079
+instead of one that has never met them. config.json is excluded for the
+mirror-image reason - shipping it would reset a friend's settings on every
+update. There are two locks on those paths now, .gitignore keeping them out
+of the repo and updater.py's PROTECTED list refusing to write them even if
+one ever slips into a release.
+    Dropped 88 MB -> 4.8 MB, almost all of it _shots/ (my own render-check
+    output) and __pycache__.
+
+FOLDER RENAMED to Scp-079-terminal. Nothing in the code needed changing -
+every path resolves from __file__ rather than being written out - and the
+full suite passes unchanged from the new location. Worth knowing WHY it
+fought back: the folder had the ReadOnly attribute plus a desktop.ini, and
+the directory itself was held open while every subfolder inside it renamed
+fine. That last detail is the useful diagnostic - if a folder will not
+rename but its contents will, something has the directory open, not a file.
+
+VERIFIED: 795 assertions across 17 suites (114 of them new, and the useful
+ones are the refusals). All 26 screens render. Suite re-run from the renamed
+folder to prove the rename changed nothing.
+
+
+===================================================
+SESSION 13 -- THE BOOT TELLS THE TRUTH ABOUT THE MACHINE
+===================================================
+
+079 WAS PLAYING THE EXPLOSION SOUND ITSELF. Caught live: "holy explosion" got
+>>PLAY sound_effect_1__explosio - the bang with no gif, no lockout and no
+joke, just a noise. The cause was mundane: the mp3 sits in sounds/ beside the
+player's own files, so it was swept into 079's palette and offered to it by
+name every turn.
+    Fixed by SPLITTING the folder rather than by asking it not to. Sounds
+    matching a reserved marker (explos / nuke / fire) load into a separate
+    dict that >>PLAY does not resolve against, so guessing the name does not
+    work either. The easter egg now calls audio.play_effect(), which only
+    reads the reserved set. 079 keeps every sound the player actually put
+    there.
+
+CHECKING MEMORY IS A REAL READING NOW. It says the host's RAM, and - this is
+the point - what NOT to run on it:
+
+        CHECKING MEMORY.........................OK
+          64K CORE  --  PARITY VERIFIED
+          HOST 16 GB  --  AVOID QWEN3, MIXTRAL, LLAMA3.3
+
+and when the model you actually picked is the problem, it stops being advice
+and becomes a refusal to load quietly:
+
+        CHECKING MEMORY........................LOW
+          HOST 16 GB  --  QWEN3 NEEDS 32 GB
+
+with a gate before anything loads: YOU HAVE 16 GB OF MEMORY. THE MINIMUM
+RECOMMENDED FOR QWEN3 MODELS IS 32 GB. It lists which installed models DO fit,
+because "no" is more useful with an alternative attached.
+
+    THE DETAIL THAT NEARLY BROKE IT: Windows reports 31.04 GB on this 32 GB
+    machine - firmware reserves the rest. A plain "do you have 32?" told the
+    developer's own box it was too small for the model it obviously runs. RAM
+    is now snapped to the nearest real module size for display and compared
+    with a 6% tolerance. Anyone writing a threshold against reported RAM
+    should assume it reads ~3% low.
+
+    AND A SECOND ONE: the published family minimum must not be raised by the
+    download size. 23 GB x 1.4 + 2 produced "the minimum for qwen3 is 34 GB",
+    which is both wrong and unrecognisable to anyone who has read the model
+    card. Listed figures win outright; the size rule is only a fallback for
+    families with no published number.
+
+THE TWO LINK LINES DO SOMETHING NOW. They were decoration - always ACK,
+always OK. They read the real Ollama model store, and they fail for two
+DIFFERENT reasons that used to look identical:
+
+    HANDSHAKE ..... ERROR ACCESSING LINK   the folder is there and the OS
+                                           will not open it. Antivirus,
+                                           quarantine, a permissions mess.
+    OBJECT FOUND .. NOT LOCATED            there is no model store at all.
+                                           Nothing has ever been pulled.
+
+One says "something is standing in front of your files", the other says "you
+have no files". OLLAMA_MODELS is honoured, because people move this to a
+second drive precisely because the weights are enormous, and assuming the
+default would report a healthy install as missing.
+
+A PRE-EXISTING BUG FOUND WHILE WIRING THE GATE: resolve_resume() checked only
+the battery, so RESUMING A SAVED CONVERSATION SKIPPED THE LOW-DISK WARNING
+ENTIRELY - the feature added last session was unreachable down that path, and
+the memory check would have been too. Both paths now call one needs_preflight().
+
+/feedback -- NTFY. Three topics (bugs / suggestions / other) so the feeds do
+not become one pile, with random suffixes because an ntfy topic is readable by
+anyone who knows its name and that suffix IS the privacy.
+    Nothing auto-sends. Ever. There is no crash report and no background
+    call - a note leaves only when someone types one and presses ENTER.
+    The screen lists what goes with it (version, model, OS) and what does
+    not (the conversation, 079's memory, the saves, your name) BEFORE they
+    type rather than after, and a test greps the composed body for the real
+    username to keep that honest.
+    stdlib urllib, not curl.exe like the Fish.exe sender - that is fine from
+    a .bat but would be a subprocess launch from inside a game that
+    deliberately never makes one.
+
+VERIFIED: 872 assertions across 18 suites (77 new). All 28 screens render.
+
+
+===================================================
+STILL TO DO
+===================================================
+
+-0. THE EXPLOSION JOKE. Ask 079 to "explode" and it answers "OKAY", plays the
+    nuke gif with the bang, then the fire gif becomes the lock screen - the
+    timeout screen, but funnier.
+
+    ASSETS ARE ALREADY IN PLACE, all three confirmed present:
+        sounds/tenor_explosiom.gif   498x294, 26 frames
+        sounds/Fire.gif              498x373, 20 frames
+        sounds/sound effect 1  explosion.mp3   59 KB
+    (note the DOUBLE SPACE in the mp3 filename - do not retype it by hand)
+
+    PYGAME CANNOT PLAY ANIMATED GIFS. pygame.image.load returns frame ONE and
+    silently ignores the rest, so this looks like it works and then does not
+    move. Pillow 12.2.0 IS installed under 3.13 and does decode them - build a
+    small frame extractor (Image.open -> seek through n_frames -> convert each
+    to a pygame Surface once at load, then play the list on a timer). Do it
+    once at startup, not per frame.
+    Pillow is currently an UNDECLARED dependency. If this ships, Setup.bat has
+    to install it and effects has to degrade gracefully when it is missing -
+    the same rule the face flicker already follows: a decoration must never be
+    the reason the terminal will not start.
+
+    THE LOCK ITSELF IS ALREADY BUILT. recall.lock(seconds, reason=...) and the
+    caption table in render_rejection take a reason string - this needs a third
+    one ("exploded") next to "patience" and "hostility", and a fire background
+    instead of the white X. Keep it short; a five minute joke lockout stops
+    being funny around minute two.
+
+    TRIGGER: match on the whole message only, the way /help does. "explode",
+    "self destruct", "blow up". A passing mention of the word mid-sentence
+    should not detonate.
+
+-1. PATIENCE METER. Agreed spec:
+    - A meter separate from hostility, shown near it in the disk panel.
+    - Falls while the human is silent. Each unprompted "waiting for you" line
+      costs DOUBLE the last: 1%, then 2, 4, 8, 16... so a short pause is
+      nothing and a long absence collapses fast.
+    - At 0% the screen locks for 5-10 minutes.
+    - THE LOCK USES THE SAME WHITE X, WITH DIFFERENT CAPTION TEXT (decided).
+      Visual language stays consistent; the line underneath tells you which
+      meter ran out - cut off for rudeness, or left because you went quiet.
+    - Presumably recovers when you actually engage. Rate not decided.
+    OTHER EMOTIONS (trust, interest, caution, focus) were considered and
+    explicitly DEFERRED - patience only for now.
+
+-2. FULL SCREEN, toggleable in SETTINGS. Note when building: the CRT layer,
+    the disk panel and the help panel all size themselves from the window at
+    construction, and the scroll arrows and [X] hit boxes are in screen
+    pixels. A resize has to rebuild all of them or the clickable regions end
+    up somewhere the mouse is not.
+
+-3. MEMORY SHOULD FILL UP, NOT SIT NEARLY EMPTY. It is now told to write
+    unprompted, but it still keeps very little. Wanted:
+    - store as much as it can and keep storing
+    - patterns in how the human behaves, so it can recognise them later
+    - its OWN model name and what it is running on, written into memory
+    This is the natural pressure test for compression, which currently almost
+    never triggers because storage never fills.
+
+-4. RANDOM SCP LOOKUPS. With the internet on it should look up SCP topics on
+    its own, unprompted, not only 682. The background channel already has a
+    narrow fixation-only exception - this widens it to any SCP subject, still
+    restricted-mode (SCP records only), still never on the player's turn.
+
+0. MAKE 079 MORE DYNAMIC. Right now its behaviour is mostly fixed rules -
+   same idle lines, same cooldowns, same reactions in the same order. It
+   should vary more: mood that carries across a session, different reactions
+   to the same input depending on what came before, occasionally pursuing
+   something of its own instead of only responding. The pieces to build on
+   already exist (hostility, the fixation cooldown, the background channel,
+   its own memory of past sessions) - what is missing is something that
+   reads those and changes HOW it talks, not just what it is allowed to say.
+   No spec yet. Worth designing properly rather than bolting on more rules.
+
+
+1. SHARED FOLDER -- BUILT (shared.py). Drop anything into "shared folder" at
+   the project root. 079 cannot see it, or even tell whether anything is in
+   there, until you type /shared on. /shared off closes it again, and it is
+   forced CLOSED at every launch regardless of the config file - opening your
+   own folder should be a decision in a conversation, not something that
+   persists from last week.
+
+   079 uses >>SHARED to list and >>OPEN filename to read.
+
+   READ-ONLY IS STRUCTURAL, NOT A PROMISE. There is no write, rename or
+   delete code in shared.py at all - the only filesystem calls are listdir,
+   stat and open(mode="r"). tests/test_shared.py greps the module source for
+   write calls, so if one is ever added the suite fails and it has to be a
+   deliberate choice rather than a slip.
+
+   Also: binaries are listed but refused by extension (079 saying "I cannot
+   read that format" beats three kilobytes of mojibake), reads are capped at
+   200KB from disk and 2000 chars handed over, symlinks cannot point out of
+   the folder (realpath resolves before the containment check), and contents
+   go through the same neutraliser as web pages.
+
+   ONE BUG FOUND IN LIVE TESTING: llama3.2:3b was asked to read a file it had
+   just seen listed, and issued >>READ (its own memory) instead of >>OPEN. It
+   hit "NO SUCH FILE" and wasted a turn. A >>READ that misses in memory now
+   falls through to the shared folder IF the human has opened it - the gate
+   is unchanged, only the spelling is forgiving, and the result is labelled
+   "NOT IN YOUR MEMORY" so it cannot be mistaken for its own.
+
+1a. NOTE FOR PLAY: the small models often speak a GUESS before their command
+   results come back - you will see it confidently describe a file, then get
+   the real contents on the follow-up generation. That is the designed flow
+   (a read earns one follow-up), but it does mean the first sentence after a
+   lookup or an open can be invention. Worth watching whether it should stay
+   silent until the data lands instead.
+
+2. WEB LOOKUP -- BUILT (web.py). Both modes, toggled in SETTINGS under
+   LOOKUP SCOPE, on top of the existing /internet on|off:
+      restricted    SCP wiki only. Anything else is refused outright.
+      unrestricted  adds Wikipedia, so it can be asked what anything is.
+   079 uses it with >>LOOKUP scp-682. Verified live: it fetched the real
+   article, not an invented one.
+
+   Three things worth knowing about it:
+
+   (a) TWO REAL BUGS FOUND AND FIXED WHILE BUILDING IT.
+       - The injection defence did not work. _to_text collapsed newlines
+         BEFORE strip_commands ran, and that stripper anchors to line starts,
+         so flattening the page defeated it and ">>DELETE observations.txt"
+         survived into the model's context. Commands are now stripped while
+         the line structure is intact, plus a positional backstop that
+         redacts ">>VERB" anywhere it appears. tests/test_web.py locks both in.
+       - HTTPS failed entirely on this machine: CERTIFICATE_VERIFY_FAILED,
+         "Basic Constraints of CA cert not marked critical". That is an
+         HTTPS-inspecting antivirus injecting a root cert that OpenSSL 3.x
+         rejects under VERIFY_X509_STRICT. web.py tries a strict context
+         first and falls back to clearing ONLY that flag - chain, hostname
+         and expiry are still verified. Verification is never turned off.
+         A friend without intercepting AV silently gets the strict path.
+
+   (b) SMALL MODELS WOULD RATHER GUESS THAN LOOK. First live test, llama3.2:3b
+       answered "SCP-682: A HIGHLY AGILE AND RESILIENT ANOMALY..." from its
+       own training data and never issued the command. Fixed in the prompt,
+       and the fix is better in-fiction anyway: 079 is now told it does NOT
+       know what is in any Foundation record, because it is a 1978 machine
+       sealed in a cell and those files were written long after it. It must
+       look one up or admit it does not know. After that it issued
+       >>LOOKUP SCP-682 correctly. If it ever starts confabulating records
+       again, that paragraph in tools._access_block is the thing to check.
+
+   (c) It is READ ONLY by construction, not by instruction. There is no POST
+       path in web.py at all, the host allowlist is checked again AFTER
+       redirects so a redirect cannot walk it off-list, pages are capped at
+       400KB read and 1400 chars handed over, and every fetched string goes
+       through the stripper above.
+
+3. THE TWO-CHANNEL IDEA you raised (one channel for talking, one for working
+   on memory in the background). Not built. Worth deciding whether "thinking
+   about memory between turns" should cost real time or be instant.
+
+3a. CUSTOM SOUNDS -- BUILT. Drop .wav/.ogg/.mp3 files into the new "sounds"
+   folder at the project root. The filename becomes the name, and 079 is told
+   which ones exist and can trigger them itself with >>PLAY name. The name is
+   looked up in the loaded set, never used as a path, so it cannot reach any
+   other file. An invented name is reported back to it rather than silently
+   ignored. Nothing is in the folder yet - it does nothing until you add
+   something.
+
+MEASURED, so nobody re-derives it: REASONING IS NOT VIABLE ON qwen3.6 HERE.
+   With /show ai thinking on, an end-to-end run produced 453 characters of
+   reasoning in 400 SECONDS and the reply never arrived at all. That is the
+   22GB model spilling out of 8GB of VRAM, not a budget problem - raising
+   the token allowance just lets it generate more slow reasoning. The command
+   now warns explicitly when the loaded model is large. Use it with
+   llama3.2:3b if you want to watch it think.
+
+ALSO CONFIRMED: per-request keep_alive DOES override OLLAMA_KEEP_ALIVE=0 in
+   the server environment (expires_at came back as a future timestamp). So
+   the game itself was never affected by that env var - only other Ollama
+   tools were. Note OLLAMA_MAX_LOADED_MODELS=1: loading ANY other model
+   evicts the one in use, which is what my own test probes kept doing.
+
+3b. AUDIO ON THE FACE FLICKER. Your note - a crackle/burst to land with it.
+   The hook already exists: effects.SubliminalFlash.trigger() and the frame
+   where update() first returns True are the moments to fire it. audio.play()
+   already takes a name and a volume, so this is a sound file plus one call,
+   not new plumbing. Worth pairing it with the existing "static" sound rather
+   than inventing a second noise vocabulary. The image alpha is tunable via
+   effects.subliminal_alpha (currently 215 of 255) if the sound wants a
+   heavier or lighter visual to sit against.
+
+3d. FULL SCREEN RESETS THE DISPLAY EVERY TIME -- YOUR NOTE, NOT YET FIXED.
+   Toggling full screen makes the monitor drop and re-sync (the HDMI
+   handshake), which blanks the screen for a second and shuffles every other
+   window on the desktop.
+
+   THE CAUSE IS KNOWN AND SO IS THE FIX. pygame.FULLSCREEN asks for a real
+   EXCLUSIVE mode change - the GPU renegotiates the display link, which is
+   exactly the re-sync being seen. The fix is to stop changing the video mode
+   at all: a borderless window the size of the desktop
+   (pygame.NOFRAME at the desktop resolution, positioned at 0,0 via
+   SDL_VIDEO_WINDOW_POS) looks identical and costs no mode switch. Most games
+   calling something "fullscreen (windowed)" are doing this.
+
+   Worth doing carefully rather than quickly, because apply_display_mode
+   already has to rebuild the CRT buffers, the renderer's line budget, the
+   disk panel, the help panel and every hit box - and the settings viewport
+   added this session now depends on renderer.max_visible too. Ask before
+   building; it is a display change and it needs a real eyes-on test, not a
+   headless screenshot.
+
+3e. SETUP.BAT SHOULD OFFER TO RUN THE UPDATER CHECK AUTOMATICALLY -- YOUR
+   NOTE. A 1/2/3 prompt, 3 being "no thanks":
+        [1] STARTUP FOLDER    [2] TASK SCHEDULER    [3] NO
+
+   ONE THING TO KNOW BEFORE BUILDING IT: on this machine Avast's Gaming Mode
+   disables EVERY scheduled task, so option 2 would silently do nothing here
+   and look like a bug in the installer rather than what it is. If both are
+   offered, the Startup folder should be the recommended one and the Task
+   Scheduler entry should say plainly that some antivirus suites switch tasks
+   off. Consent-gated either way - nothing is installed without the keypress.
+
+3c. THE ROBLOX FLICKER -- NOTED, NOT BUILT. Your note: the guy from Roblox
+   ("Chain") appears full screen for a split second, purely as a joke.
+
+   THE MACHINERY ALREADY EXISTS. This is the face flicker with a different
+   image: effects.SubliminalFlash already fills the screen for ~5 frames and
+   draws BEFORE the CRT pass so it scans and blooms like everything else. So
+   this is an asset plus a second trigger, not new plumbing.
+
+   WHAT IT MUST NOT DO IS SHARE THE FACE'S RULES, and this is the whole
+   design question. The face gets MORE FREQUENT as hostility rises - that is
+   deliberate, it is dread tightening. A gag that also gets more frequent as
+   079 gets angrier stops being a gag and starts being part of the horror.
+   So: flat rate, rare, independent of hostility, and it should probably not
+   fire during a lockout or mid-explosion where it would step on a beat that
+   is already running.
+
+   Also: under the existing easter_eggs toggle, same as the explosion and the
+   face, so one switch still turns off everything that is a joke.
+
+   NEEDED FROM YOU WHEN WE BUILD IT: the image file, and confirmation of
+   which character you mean - I am not going to guess at a Roblox meme and
+   ship the wrong face. Drop it somewhere in the project and say the word.
+   If it turns out to be animated rather than a still, gifplay.py already
+   decodes gifs through Pillow and can play it instead.
+
+4. 079 still sometimes fixates on storage figures out loud, and occasionally
+   invents a filename that does not exist. The brief tells it not to; a
+   stronger fix is to stop feeding it exact byte counts every single turn.
+
+also fix the copy thingy etc,  uhh also we should probabally add saves, one save can only run the model its designed for and there should be a fail safe to prevent editing of the file that ensures the same model each time and stuff
