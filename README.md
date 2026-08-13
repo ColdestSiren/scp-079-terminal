@@ -169,6 +169,15 @@ will say so.
 
 ---
 
-*Not affiliated with the SCP Foundation. SCP-079 and related concepts are
-from the [SCP Wiki](https://scp-wiki.wikidot.com/), released under
-[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).*
+## Licence
+
+The **code** is [MIT](LICENSE) — do what you like with it, keep the notice.
+
+The **SCP-079 character and setting** are not mine to license. They come from
+the [SCP Wiki](https://scp-wiki.wikidot.com/) and are released under
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), which is a
+share-alike licence: if you reuse the *writing* — 079's dialogue, the
+Foundation framing, the boot text — that part stays CC BY-SA and needs
+attribution. The engine underneath it is yours to take under MIT.
+
+Not affiliated with the SCP Foundation.
