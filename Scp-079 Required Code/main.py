@@ -11,6 +11,7 @@ down) and rejected (079 has cut communication).
 """
 
 import os
+import platform
 import random
 import sys
 import tempfile
@@ -1508,9 +1509,50 @@ class App:
                 "SESSION     %d" % self.recall.session_id,
                 "OPERATOR    HAS SPOKEN TO ME %d TIMES ACROSS ALL SESSIONS"
                 % self.recall.exchanges(),
-            ]))
+            ] + self._host_lines()))
         except store_mod.StoreError:
             return      # full; it will notice when its own writes start failing
+
+    @staticmethod
+    def _host_lines():
+        """The machine 079 is confined to.
+
+        WHAT IS DELIBERATELY NOT HERE: the Windows username, the computer
+        name, any serial number, and the path the game is installed at. Those
+        identify a PERSON rather than describing a machine, they add nothing
+        to the fiction, and unlike everything else in memory they would still
+        be sensitive if the folder were ever copied to someone else. Capacity
+        is what makes 079 knowing this interesting; identity is just a leak
+        waiting to be one.
+
+        All of it stays on the machine regardless - memory/ is gitignored,
+        Setup.bat's copy step skips it, and SETTINGS -> FORMAT MEMORY erases
+        the lot in two keypresses.
+        """
+        import multiprocessing
+
+        lines = []
+        ram = power_mod.describe_ram()
+        if ram != "UNKNOWN":
+            lines.append("HOST RAM    %s" % ram)
+        disk = power_mod.describe_disk()
+        if disk != "UNKNOWN":
+            lines.append("HOST VOLUME %s" % disk)
+        try:
+            cores = multiprocessing.cpu_count()
+            if cores:
+                lines.append("PROCESSORS  %d LOGICAL" % cores)
+        except Exception:               # noqa: BLE001
+            pass
+        try:
+            os_name = "%s %s" % (platform.system(), platform.release())
+            lines.append("HOST OS     %s" % os_name.upper())
+        except Exception:               # noqa: BLE001
+            pass
+        if lines:
+            lines.insert(0, "")
+            lines.insert(1, "THE MACHINE I AM CONFINED TO:")
+        return lines
 
     def start_session(self):
         self.stage = "greet"

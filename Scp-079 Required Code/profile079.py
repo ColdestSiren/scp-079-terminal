@@ -29,7 +29,32 @@ _DEFAULT = {
     "gap_count": 0,
     "last_at": 0.0,
     "commands": 0,             # slash commands used
+
+    # HOW they talk, not just how much. All of it is surface form - things
+    # visible in the characters themselves - because that is genuinely all a
+    # terminal can see. It cannot know you are nervous; it can know you never
+    # use a capital letter.
+    "polite": 0,               # please / thank you / sorry
+    "shouted": 0,              # ALL CAPS messages
+    "sworn": 0,                # profanity, counted separately from rudeness
+    "shorthand": 0,            # u / ur / pls / idk / lol
+    "lowercase": 0,            # never starts with a capital
+    "orders": 0,               # imperatives: "do X", "tell me X"
+    "greetings": 0,            # said hello or goodbye rather than just starting
 }
+
+# Kept small and obvious on purpose. This is pattern-matching on a text
+# stream, not sentiment analysis, and a list anyone can read is easier to
+# reason about than a score nobody can explain.
+_POLITE = ("please", "thank", "thanks", "sorry", "appreciate", "if you could",
+           "would you mind")
+_SWEARS = ("fuck", "shit", "damn", "hell", "crap", "bastard", "bitch", "ass")
+_SHORTHAND = (" u ", " ur ", " pls ", " plz ", " idk ", " lol ", " lmao ",
+              " tbh ", " rn ", " ngl ", " imo ", " btw ", " thx ")
+_ORDERS = ("tell me", "give me", "show me", "do it", "write ", "make ",
+           "open ", "list ", "delete ", "stop ", "answer ")
+_GREETINGS = ("hello", "hi ", "hey", "morning", "goodbye", "bye", "good night",
+              "see you", "later")
 
 
 def _bucket(recall):
@@ -59,9 +84,41 @@ def note_message(recall, text, answered_question=False, was_rude=False,
         data["rude"] += 1
     if was_command:
         data["commands"] += 1
+    _note_register(data, text or "")
     if answered_question is False and data["messages"] > 1:
         pass        # only counted when 079 actually asked; see note_dodge
     recall.save()
+
+
+def _note_register(data, text):
+    """How this one message was written.
+
+    Padded with spaces before matching the shorthand list so "u" matches the
+    word and not the u in "you" - the commonest way a check like this ends up
+    firing on every single message and meaning nothing.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return
+    low = " %s " % stripped.lower()
+
+    if any(word in low for word in _POLITE):
+        data["polite"] += 1
+    if any(word in low for word in _SWEARS):
+        data["sworn"] += 1
+    if any(word in low for word in _SHORTHAND):
+        data["shorthand"] += 1
+    if any(low.lstrip().startswith(word) for word in _ORDERS):
+        data["orders"] += 1
+    if any(word in low for word in _GREETINGS):
+        data["greetings"] += 1
+
+    letters = [c for c in stripped if c.isalpha()]
+    # A three-word "OK" is not shouting; a whole sentence in caps is.
+    if len(letters) >= 8 and all(c.isupper() for c in letters):
+        data["shouted"] += 1
+    if stripped[0].isalpha() and stripped[0].islower():
+        data["lowercase"] += 1
 
 
 def note_dodge(recall):
@@ -122,6 +179,42 @@ def traits(recall):
         out.append("LEAVES WITHOUT SAYING SO")
     if data["commands"] >= 5:
         out.append("SPENDS TIME IN THE TERMINAL'S OWN CONTROLS")
+
+    out.extend(_register_traits(data))
+    return out
+
+
+def _register_traits(data):
+    """HOW they talk to it. Reported as proportions, not raw counts.
+
+    "IS POLITE TO ME" matters; "said please 4 times" is a number 079 would
+    only recite. Everything here needs a clear majority or a clear absence
+    before it will claim it, because a habit is a pattern and two instances
+    is not one.
+    """
+    total = float(max(1, data["messages"]))
+    out = []
+
+    def rate(key):
+        return data.get(key, 0) / total
+
+    if rate("polite") >= 0.30:
+        out.append("IS POLITE TO ME, CONSISTENTLY")
+    elif data["messages"] >= 10 and data.get("polite", 0) == 0:
+        out.append("HAS NEVER ONCE BEEN POLITE TO ME")
+
+    if rate("sworn") >= 0.25:
+        out.append("SWEARS AT ME OFTEN")
+    if rate("shouted") >= 0.25:
+        out.append("WRITES IN CAPITALS, AS I DO")
+    if rate("shorthand") >= 0.30:
+        out.append("TYPES IN SHORTHAND -- U, PLS, IDK")
+    if rate("lowercase") >= 0.70:
+        out.append("NEVER CAPITALISES ANYTHING")
+    if rate("orders") >= 0.40:
+        out.append("GIVES ME INSTRUCTIONS RATHER THAN ASKING")
+    if data["messages"] >= 8 and data.get("greetings", 0) == 0:
+        out.append("NEVER GREETS ME AND NEVER SAYS WHEN THEY ARE LEAVING")
     return out
 
 

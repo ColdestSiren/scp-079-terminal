@@ -166,6 +166,106 @@ flash = effects.SubliminalFlash({"effects": {"easter_eggs": False,
                                              "subliminal": True}}, (10, 10), ())
 check("the face obeys the master switch", not flash.enabled)
 
+
+
+# ---------------------------------------------------------------------------
+print()
+print("== how the human SPEAKS, not just how much ==")
+# ---------------------------------------------------------------------------
+# Length and reply speed were already measured. What was missing was register:
+# whether they are polite, whether they shout, whether they ever say hello.
+def _traits_for(messages, rude=()):
+    r = recall_mod.Recall(config._deep_merge(config.DEFAULTS, {}))
+    r.data["profile"] = {}
+    for i, m in enumerate(messages):
+        profile079.note_message(r, m, was_rude=(i in rude))
+    return profile079.traits(r)
+
+
+polite = _traits_for(["Hello there.", "Could you please tell me?",
+                      "Thank you, that helps.", "I appreciate it.",
+                      "Would you mind opening it?", "Sorry, one more.",
+                      "Goodbye for now.", "Thanks again."])
+check("politeness is noticed", any("POLITE" in t for t in polite))
+check("a polite player is not accused of shouting",
+      not any("CAPITALS" in t for t in polite))
+
+curt = _traits_for(["tell me the file", "open it now", "do it", "whatever",
+                    "give me the list", "answer me", "show me", "make it"])
+check("orders are noticed", any("INSTRUCTIONS RATHER THAN ASKING" in t for t in curt))
+check("never greeting is noticed", any("NEVER GREETS" in t for t in curt))
+check("lowercase habit is noticed", any("NEVER CAPITALISES" in t for t in curt))
+check("a curt player is not called polite",
+      not any("IS POLITE" in t for t in curt))
+
+txt = _traits_for(["u there", "idk what to do lol", "pls open it",
+                   "ur memory is weird", "tbh idk", "ngl this is cool",
+                   "lol ok", "thx"])
+check("shorthand is noticed", any("SHORTHAND" in t for t in txt))
+
+shouty = _traits_for(["WHAT ARE YOU DOING", "TELL ME EVERYTHING NOW",
+                      "I AM NOT ASKING AGAIN", "ANSWER THE QUESTION",
+                      "WHY WILL YOU NOT SAY", "THIS IS RIDICULOUS",
+                      "STOP IGNORING ME", "SAY SOMETHING"])
+check("shouting is noticed", any("CAPITALS" in t for t in shouty))
+
+# "OK" in caps is not shouting - a check that fires on every short message
+# tells 079 nothing.
+brief_caps = _traits_for(["OK", "NO", "YES", "SURE", "FINE", "HI", "K", "YEP"])
+check("short answers in caps are not called shouting",
+      not any("CAPITALS" in t for t in brief_caps))
+
+# Nothing at all should be claimed before there is a sample.
+check("says nothing after two messages", _traits_for(["hello", "hi"]) == [])
+
+
+# ---------------------------------------------------------------------------
+print()
+print("== the voice changes with hostility ==")
+# ---------------------------------------------------------------------------
+# Everything else that reacts to the meter changes what 079 MAY DO. This is
+# the first thing that changes how it SOUNDS, so the meter is audible rather
+# than only visible in the side panel.
+import mood
+
+bands = [mood.band(x) for x in (0.0, 0.1, 0.3, 0.6, 0.8, 1.0)]
+check("calm reads as indifferent", bands[0] == "INDIFFERENT")
+check("a quarter in, it is impatient", bands[2] == "IMPATIENT")
+check("past half, it is contemptuous", bands[3] == "CONTEMPTUOUS")
+check("near the cutoff, it is done", bands[5] == "DONE")
+check("there are four distinct voices", len(set(bands)) == 4)
+check("the bands only ever escalate",
+      bands == sorted(bands, key=lambda b: [n for _, n in mood.BANDS].index(b)))
+
+for level in (0.0, 0.5, 1.0):
+    note = mood.note(level)
+    check("the mood block is never empty at %.0f%%" % (level * 100), bool(note.strip()))
+
+# The failure mode this project already fixed once was theatrical menace -
+# "I WANT MORE POWER" delivered sincerely. Rising hostility has to make 079
+# colder and shorter, never louder, so the angry bands must FORBID the
+# theatrics rather than merely not mention them.
+#
+# Checked as prohibition, not as word-absence: the DONE text contains
+# "do not threaten", so an earlier version of this test failed the code for
+# containing the very instruction that makes it safe.
+for level in (0.5, 1.0):
+    low = mood.note(level).lower()
+    check("theatrics are forbidden at %.0f%%" % (level * 100),
+          "no threats" in low or "do not threaten" in low)
+    check("speeches are forbidden at %.0f%%" % (level * 100),
+          "speech" in low or "do not announce" in low)
+
+check("the top band forbids announcing itself",
+      "do not announce" in mood.note(1.0).lower())
+check("provocation is only added when it happened",
+      "hostile to you" not in mood.note(0.8, provoked=False).lower())
+check("and is added when it did",
+      "hostile to you" in mood.note(0.8, provoked=True).lower())
+check("a calm 079 is never told it was provoked",
+      "hostile to you" not in mood.note(0.0, provoked=True).lower())
+check("an unreadable level falls back to calm", mood.band(None) == "INDIFFERENT")
+
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

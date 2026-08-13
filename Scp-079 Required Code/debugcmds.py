@@ -55,8 +55,10 @@ def _hostility(app, args):
         if fraction >= 1.0:
             amount += max(0.05, threshold * 0.02)
         app.recall.add_hostility(amount)
+    import mood
     return [("HOSTILITY = %.0f%% (%.2f / %.2f)"
              % (fraction * 100, app.recall.hostility(), threshold), "warn"),
+            ("VOICE     = %s" % mood.describe(app.hostility_level()), "warn"),
             ("AT 100% IT ENDS THE CONVERSATION ON YOUR NEXT INSULT.", "dim")]
 
 
@@ -198,6 +200,8 @@ def _state(app, args):
         ("HOSTILITY    %.2f / %.2f  (%.0f%%)"
          % (rec.hostility(), app.reject_threshold,
             100.0 * app.hostility_level()), "text"),
+        ("VOICE        %s" % __import__("mood").describe(app.hostility_level()),
+         "text"),
         ("LOCKED       %s" % ("%.0fs" % rec.locked_seconds()
                               if rec.locked_seconds() else "no"), "text"),
         ("682          %s" % ("may raise" if rec.fixation_allowed()
@@ -206,10 +210,16 @@ def _state(app, args):
         ("MEMORY       %s / %s in %d file(s)"
          % (store.human_bytes(mem.usage()), store.human_bytes(mem.quota),
             len(mem.listing())), "text"),
-        ("NETWORK      %s" % ("on" if app.session.internet else "off"), "text"),
-        ("SHARED       %s" % ("open" if app.session.shared else "closed"), "text"),
-        ("THINKING     %s" % ("shown" if app.session.show_thinking
-                              else "hidden"), "text"),
+        # Guarded: everything above describes state that exists before a
+        # session does, and reading through a None session turned the whole
+        # dump into one traceback at exactly the moment it was most wanted.
+        ("NETWORK      %s" % (("on" if app.session.internet else "off")
+                              if app.session else "no session yet"), "text"),
+        ("SHARED       %s" % (("open" if app.session.shared else "closed")
+                              if app.session else "no session yet"), "text"),
+        ("THINKING     %s" % (("shown" if app.session.show_thinking
+                               else "hidden")
+                              if app.session else "no session yet"), "text"),
         ("SESSIONS     %d" % rec.session_count(), "text"),
     ]
     return lines

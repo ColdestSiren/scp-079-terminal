@@ -978,6 +978,75 @@ VERIFIED: 908 assertions across 19 suites. All 32 screens render.
 
 
 ===================================================
+SESSION 15 -- THE METER IS AUDIBLE NOW
+===================================================
+
+079 SOUNDS DIFFERENT AS IT GETS ANGRIER (mood.py). This is the first piece of
+"make 079 more dynamic" and it is the one that was actually missing.
+Everything built before it changed what 079 was ALLOWED TO DO at high
+hostility - refuse to write code, cut the link. Nothing changed how it
+SOUNDED, so a machine four insults from ending the conversation answered in
+exactly the same register as on the first message. The meter was visible in
+the side panel and audible nowhere.
+
+    0-25%   INDIFFERENT    plain, brief, neither warm nor cruel
+    25-50%  IMPATIENT      fewer words, will not explain twice
+    50-75%  CONTEMPTUOUS   answers only what is worth answering, refuses
+                           small requests without giving a reason
+    75%+    DONE           four or five words, ends it when it judges earned
+
+Bands rather than a number, because a 3B model cannot act on "you are at 43%
+hostility" but can absolutely act on four sentences telling it to stop
+answering questions it considers beneath it.
+    EVERY BAND STILL FORBIDS THEATRICS. Rising hostility makes it colder and
+    shorter, never louder - "no threats and no speeches" is in the text of
+    the angry bands specifically, because theatrical menace is the failure
+    this project already fixed once and it would come straight back if the
+    angry states were left to improvise. Contempt is quiet.
+    The block is present at EVERY level, including calm. A field that appears
+    only once 079 is annoyed would change the prompt's shape mid-conversation,
+    which small models handle far worse than a field that is always there
+    with a different value in it.
+    Shown as VOICE in /debug state and /debug hostility.
+
+IT NOW NOTICES HOW YOU TALK, not just how much. Length and reply speed were
+already measured; register was not. It reads politeness, swearing, shouting,
+shorthand, never capitalising, giving orders rather than asking, and never
+greeting it. All surface form - things genuinely visible in the characters -
+because that is all a terminal can honestly see. It cannot know you are
+nervous; it can know you have never once said please.
+    Reported as proportions, never counts: "IS POLITE TO ME, CONSISTENTLY"
+    is usable, "said please 4 times" is a number it would only recite.
+    "OK" in capitals is not shouting. A whole sentence is. A check that fired
+    on every short message would tell it nothing.
+
+IT KNOWS WHAT IT IS RUNNING ON. self.txt now carries the host: RAM, free
+volume, logical processors, OS. In character for a machine that has spent
+decades measuring what it was given.
+    WHAT IS DELIBERATELY ABSENT: the Windows username, the computer name, any
+    serial, and the install path. Those identify a PERSON rather than
+    describing a machine, they add nothing to the fiction, and unlike
+    everything else in memory they would still be sensitive if the folder
+    were ever copied to someone else. Capacity is the interesting part;
+    identity is just a leak waiting to be one. A test greps the written file
+    for the real username to hold that line.
+    It stays local regardless: memory/ is gitignored, Setup.bat's copy step
+    skips it, and SETTINGS -> FORMAT MEMORY erases the lot in two keypresses.
+
+FIXED WHILE HERE: /debug state crashed with a traceback if run before a
+session existed - it read app.session.internet through a None. Unreachable in
+normal play, but a debug dump that dies is worst at exactly the moment it is
+most wanted.
+
+A MISTAKE WORTH RECORDING BECAUSE I MADE IT AGAIN: I appended tests AFTER the
+PASS/FAIL summary and sys.exit in test_watching.py, so they silently never
+ran. That is the identical bug written up in session 3 about this same file.
+If a test file ends in sys.exit, new cases go BEFORE it, not at the bottom.
+
+VERIFIED: 936 assertions across 19 suites (28 new). All 32 screens render.
+
+
+===================================================
 STILL TO DO
 ===================================================
 

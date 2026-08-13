@@ -12,6 +12,7 @@ import re
 
 import config
 import languages
+import mood
 import ollama
 import profile079
 import sysmenu
@@ -179,6 +180,29 @@ class ChatSession:
             return ""
         return profile079.brief(self.recall)
 
+    def _hostility_level(self):
+        """0..1 - how far along the meter toward cutting the human off."""
+        if self.recall is None:
+            return 0.0
+        threshold = float(self.cfg.get("rejection", {}).get("threshold", 10.0))
+        if threshold <= 0:
+            return 0.0
+        return max(0.0, min(1.0, self.recall.hostility() / threshold))
+
+    def _mood_note(self):
+        """How it SOUNDS at this hostility, as opposed to what it may do.
+
+        Everything else that reacts to the meter changes 079's permissions -
+        no code above 75%, cut the link at 100%. None of it changed the voice,
+        so the meter was visible in the side panel and audible nowhere. See
+        mood.py.
+        """
+        if self.recall is None:
+            return ""
+        provoked = bool(getattr(self.recall, "data", {}).get("profile", {})
+                        .get("rude", 0))
+        return mood.note(self._hostility_level(), provoked=provoked)
+
     def _meddling_note(self):
         """It knows which of its own settings the human has been at.
 
@@ -258,6 +282,7 @@ class ChatSession:
                      + self._language_note()
                      + self._fixation_note()
                      + self._profile_note()
+                     + self._mood_note()
                      + self._meddling_note()}
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing
