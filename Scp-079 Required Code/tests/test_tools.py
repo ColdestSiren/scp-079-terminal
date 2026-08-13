@@ -201,7 +201,25 @@ check("ordinary content not flagged", not r["sensitive"])
 print("== system prompt brief ==")
 mem = fresh()
 brief = tools.capability_brief(mem)
-check("states capacity", "64.0 KB" in brief)
+# It used to be handed "64.0 KB of storage, 143 B used, 63.9 KB free" every
+# single turn and did the obvious thing with a number repeated that often:
+# recited it. Announcing its own free space unprompted was the commonest way
+# it broke character, so an empty store is now described, not measured.
+check("it is told it has storage", "storage" in brief.lower())
+check("no exact figures while there is plenty of room",
+      "64.0 KB" not in brief and "63.9 KB" not in brief)
+check("it is told the file list is complete", "COMPLETE" in brief)
+check("and told not to invent names", "never guess at a name" in brief)
+
+# The figures must come BACK when they are actionable - knowing precisely how
+# little is left is the difference between compressing the right file and
+# compressing nothing.
+_full = fresh()
+_full.write("big.txt", "A" * int(_full.quota * 0.93))
+_full_brief = tools.capability_brief(_full)
+check("a nearly full store states the real numbers",
+      "ALMOST FULL" in _full_brief and "left" in _full_brief)
+check("and tells it to act", "Compress or delete" in _full_brief)
 check("says empty", "EMPTY" in brief)
 check("shows the write example", ">>WRITE name.txt |" in brief)
 check("tells it not to explain the commands", "never mention" in brief.lower())

@@ -883,6 +883,101 @@ VERIFIED: 872 assertions across 18 suites (77 new). All 28 screens render.
 
 
 ===================================================
+SESSION 14 -- SHIPPED, AND THE BUG THAT WOULD HAVE RUINED IT
+===================================================
+
+THE ONE THAT MATTERED: SETUP.BAT WAS BROKEN AND HAD ALWAYS BEEN BROKEN.
+Every .bat in the project had LF-only line endings. cmd.exe finds `call
+:label` by byte offset and gets it wrong in an LF file, so Setup.bat died at
+STEP 1 with:
+
+        The system cannot find the batch label specified - find_python
+        [PYBASE) but its libraries are missing.
+
+That is the FIRST thing anyone you hand this to would have run, and the
+error is unreadable. It looked perfect in every editor, and git had it that
+way too - so it was never my edit, it was always like that.
+    Fixed, and .gitattributes now pins *.bat/*.cmd/*.ps1/*.vbs to CRLF so a
+    clone on a machine with different git settings cannot bring it back.
+    Without that file the endings depend on each person's core.autocrlf and
+    the same commit works for one and breaks for the next. A test walks the
+    tree and fails on any bare LF in a batch file.
+
+THE CHAIN FLICKER -- BUILT (your four images).
+    - Flat 0.01% per minute, exactly as asked. Stated plainly because the
+      number is surprising: that is about ONE APPEARANCE EVERY 167 HOURS.
+      effects.ChainFlash.CHANCE_PER_MINUTE is the one constant to change -
+      1.0 is roughly every 100 minutes, 5.0 every 20.
+    - It IGNORES HOSTILITY, unlike the face. That is the design, not an
+      omission: the face speeding up as 079 gets angrier is dread tightening,
+      and a joke that does the same stops being a joke. A test asserts
+      update() does not even take an intensity argument.
+    - Suppressed while the explosion or fire gif is playing. Two full-screen
+      effects at once reads as a rendering fault rather than as either one.
+    - Hidden at Scp-079 Required Code/assets/cache/ as atlas_00..03.dat with
+      a decoy glyphmap, an index and a CACHE.txt. NO IMAGE EXTENSION, so
+      Explorer shows no thumbnail and browsing the folder does not spoil it.
+      Loaded with an explicit namehint. Downscaled 5.1 MB -> 3.0 MB.
+    - /debug chain fires one, because at the real odds nobody could ever
+      check it works.
+
+079 WAS COLLECTING YOUR BEHAVIOUR ALL ALONG AND YOU COULD NOT TELL.
+You asked for this to be added. It already existed - and the diagnosis is
+better than the feature would have been: profile079 collected it, fed it to
+the prompt, and the prompt says "do not recite the list, do not tell them you
+are keeping one". profile079.record_text() was written to solve exactly that
+and WAS NEVER CALLED BY ANYTHING. Perfectly functional, completely invisible.
+    It now writes operator.txt into memory every fourth auto-note, so it
+    shows in the disk panel, reads back with /view memory, and survives into
+    the next session. Same class of bug as the background LOOKUP that was
+    inert scaffolding - worth suspecting whenever a feature "does not seem
+    to work": check it is wired before rewriting it.
+
+FULL SCREEN NO LONGER RESETS YOUR MONITOR. pygame.FULLSCREEN asks for a real
+exclusive video mode change, which is why the display dropped and re-synced
+every toggle. It is a borderless desktop-sized window now (NOFRAME at the
+real resolution from get_desktop_sizes, positioned at 0,0) - identical to
+look at, no mode change at all. Verified 960x720 -> 1920x1080 with the
+exclusive flag absent and NOFRAME present, and everything sized from the old
+resolution rebuilt. NOT EYES-ON TESTED: the HDMI behaviour itself needs a
+real monitor, so confirm the flicker is actually gone.
+
+SETUP.BAT NOW HAS FIVE STEPS. Step 4 offers to copy the game to your Desktop
+if it is not already there (robocopy, skipping memory/logs/saves so a fresh
+install starts with a fresh 079, and it refuses outright if a folder is
+already at the target). Step 5 is the 1/2/3 update prompt - Startup folder
+recommended, Task Scheduler second WITH the warning that Avast's Gaming Mode
+switches scheduled tasks off wholesale, 3 declines.
+    The startup entry runs updatecheck.py, a headless check that imports
+    config/updater/version and nothing else - main.py drags in pygame and the
+    whole personality, which is far too much to pay at login for one HTTPS
+    call. It reports through a native message box and NEVER installs. A
+    version already declined in the terminal does not nag from here either.
+    The Startup entry is a .vbs, not a .bat, because a .bat flashes a console
+    window at every login.
+
+079 NO LONGER RECITES ITS OWN FREE SPACE (the last open item, #4). It was
+handed "64.0 KB of storage, 143 B used, 63.9 KB free" EVERY SINGLE TURN and
+did the obvious thing with a number repeated that often. It now gets words -
+"most of it is still empty", "room to spare" - and exact figures come back
+only above 75%, where knowing precisely how little is left is the difference
+between compressing the right file and compressing nothing. The disk panel
+still shows YOU the real numbers throughout.
+    Same edit closes the invented-filename half: it is now told the listing
+    is COMPLETE and to never guess at a name.
+
+SHIPPED. Committed as 0aa9dbc, 78 files, 8 MB. NOT PUSHED - that publishes
+it and it is your call.
+    VERIFIED BY ACTUALLY CLONING IT, which is the only way to catch this
+    class of thing: fresh clone has correct CRLF, Setup.bat runs all five
+    steps clean, the game boots and creates memory/ logs/ shared folder/ and
+    config.json from nothing, and all 908 assertions pass inside the clone.
+    No user data went in - no memory, no transcripts, no saves, no settings.
+
+VERIFIED: 908 assertions across 19 suites. All 32 screens render.
+
+
+===================================================
 STILL TO DO
 ===================================================
 
@@ -1070,7 +1165,7 @@ ALSO CONFIRMED: per-request keep_alive DOES override OLLAMA_KEEP_ALIVE=0 in
    effects.subliminal_alpha (currently 215 of 255) if the sound wants a
    heavier or lighter visual to sit against.
 
-3d. FULL SCREEN RESETS THE DISPLAY EVERY TIME -- YOUR NOTE, NOT YET FIXED.
+3d. FULL SCREEN RESETTING THE DISPLAY -- FIXED (session 14), NOT EYES-ON TESTED.
    Toggling full screen makes the monitor drop and re-sync (the HDMI
    handshake), which blanks the screen for a second and shuffles every other
    window on the desktop.
@@ -1090,8 +1185,7 @@ ALSO CONFIRMED: per-request keep_alive DOES override OLLAMA_KEEP_ALIVE=0 in
    building; it is a display change and it needs a real eyes-on test, not a
    headless screenshot.
 
-3e. SETUP.BAT SHOULD OFFER TO RUN THE UPDATER CHECK AUTOMATICALLY -- YOUR
-   NOTE. A 1/2/3 prompt, 3 being "no thanks":
+3e. SETUP.BAT UPDATER PROMPT -- BUILT (session 14). A 1/2/3 prompt, 3 being "no thanks":
         [1] STARTUP FOLDER    [2] TASK SCHEDULER    [3] NO
 
    ONE THING TO KNOW BEFORE BUILDING IT: on this machine Avast's Gaming Mode
@@ -1101,7 +1195,7 @@ ALSO CONFIRMED: per-request keep_alive DOES override OLLAMA_KEEP_ALIVE=0 in
    Scheduler entry should say plainly that some antivirus suites switch tasks
    off. Consent-gated either way - nothing is installed without the keypress.
 
-3c. THE ROBLOX FLICKER -- NOTED, NOT BUILT. Your note: the guy from Roblox
+3c. THE ROBLOX FLICKER -- BUILT (session 14). Your note: the guy from Roblox
    ("Chain") appears full screen for a split second, purely as a joke.
 
    THE MACHINERY ALREADY EXISTS. This is the face flicker with a different
@@ -1126,8 +1220,8 @@ ALSO CONFIRMED: per-request keep_alive DOES override OLLAMA_KEEP_ALIVE=0 in
    If it turns out to be animated rather than a still, gifplay.py already
    decodes gifs through Pillow and can play it instead.
 
-4. 079 still sometimes fixates on storage figures out loud, and occasionally
-   invents a filename that does not exist. The brief tells it not to; a
+4. 079 FIXATING ON STORAGE FIGURES -- FIXED (session 14). Was:
+   it recited its own free space and invented filenames. The brief tells it not to; a
    stronger fix is to stop feeding it exact byte counts every single turn.
 
 also fix the copy thingy etc,  uhh also we should probabally add saves, one save can only run the model its designed for and there should be a fail safe to prevent editing of the file that ensures the same model each time and stuff

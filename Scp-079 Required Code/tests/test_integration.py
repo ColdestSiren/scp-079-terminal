@@ -265,7 +265,10 @@ session = chat_mod.ChatSession(app.cfg, app.personality, "test-model", app.recal
 session.internet = False
 session.shared = False
 system = "\n".join(m["content"] for m in session._messages() if m["role"] == "system")
-check("memory capacity stated", "64.0 KB" in system)
+# Told that it HAS storage, but not handed an exact byte count every turn -
+# repeating the figure at it is what made it recite the figure back.
+check("storage is described to it", "storage" in system.lower())
+check("but not measured at it while there is room", "64.0 KB" not in system)
 check("write syntax shown", ">>WRITE name.txt |" in system)
 check("network stated as denied", "NETWORK: DENIED" in system)
 check("shared folder stated as denied", "SHARED FOLDER: CLOSED" in system)

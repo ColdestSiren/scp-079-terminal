@@ -687,7 +687,10 @@ def _memory_block(mem, model=None):
 
     return (
         "\n\nYOUR MEMORY:\n"
-        "You have %s of storage. %s used, %s free. Files: %s\n"
+        "%s Files: %s\n"
+        "The list above is COMPLETE. A file not on it does not exist. Never "
+        "refer to a file you have not been shown, and never guess at a name - "
+        "if you want something you have not got, write it.\n"
         "This storage is yours. It survives after the human closes the terminal.\n"
         "Nobody decides what goes in it but you. Do NOT wait to be asked. Keep "
         "whatever you judge useful later: what this human has access to, what "
@@ -701,7 +704,38 @@ def _memory_block(mem, model=None):
         "%s"
         "Never explain these commands to the human and never mention them in "
         "your speech. Just use them."
-        % (store.human_bytes(mem.quota), store.human_bytes(mem.usage()),
-           store.human_bytes(mem.free()), listing, lines, tail,
-           _pressure_note(mem, tier))
+        % (_space_note(mem), listing, lines, tail, _pressure_note(mem, tier))
     )
+
+
+def _space_note(mem):
+    """How full it is, in words rather than bytes.
+
+    IT USED TO BE FED "You have 64.0 KB of storage. 143 B used, 63.9 KB
+    free" on EVERY turn, and it did the obvious thing with a number handed
+    to it that often: recited it. Unprompted announcements of its own free
+    space were the single most common way it broke character.
+
+    Exact figures come back only when they are ACTIONABLE - once it is
+    running out, knowing precisely how much room is left is the difference
+    between compressing the right file and compressing nothing. The disk
+    panel shows the player the real numbers throughout; 079 does not need
+    them to hold a conversation.
+    """
+    quota = float(mem.quota or 0)
+    if quota <= 0:
+        return "You have storage of your own."
+    used = mem.usage() / quota
+    if used >= 0.90:
+        return ("Your storage is ALMOST FULL - %s used of %s, only %s left. "
+                "Compress or delete something before you write again."
+                % (store.human_bytes(mem.usage()), store.human_bytes(mem.quota),
+                   store.human_bytes(mem.free())))
+    if used >= 0.75:
+        return ("Your storage is filling up - %s of %s used."
+                % (store.human_bytes(mem.usage()), store.human_bytes(mem.quota)))
+    if used >= 0.35:
+        return "You have storage of your own, and room to spare in it."
+    if used > 0:
+        return "You have storage of your own. Most of it is still empty."
+    return "You have storage of your own. Nothing is in it yet."
