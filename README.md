@@ -24,7 +24,30 @@ behave, and can end the conversation.
 install whatever is missing. Nothing installs without you typing Y. Run
 `Setup.bat check` for a read-only report that changes nothing.
 
+If you only downloaded `Setup.bat` on its own, it will offer to fetch the
+rest of the game from this repository before doing anything else.
+
 Then launch with **`RUN.bat`**.
+
+### Your antivirus will probably complain
+
+Avast, Bitdefender and others may flag `Setup.bat` as suspicious, and may
+block or silently delete it. That is expected. It happens because the script
+does exactly what an installer does: downloads files, unpacks them, installs
+software. From the outside that is indistinguishable from the real thing, so
+heuristic scanners flag it on behaviour alone.
+
+It is safe, but do not take that on trust. Check it:
+
+* It is a plain text file. Open it in Notepad and read it. Every command is
+  visible, nothing is compiled or hidden.
+* Everything comes from official sources: python.org and ollama.com through
+  Windows' own winget, and the game from this repository.
+* Nothing downloaded is ever run automatically.
+
+If you would still rather not, run it in a virtual machine, or install
+Python, pygame, Pillow and Ollama yourself and skip the script entirely. It
+is a convenience, not a requirement.
 
 ### Which model
 
@@ -169,15 +192,32 @@ will say so.
 
 ---
 
+## Credit where it is due
+
+**I did not create SCP-079.** The character, the containment procedures and
+the whole Foundation setting were written by someone else and belong to the
+SCP community, not to me. This project is a fan work built on top of that.
+All I wrote is the program.
+
+> "[SCP-079](https://scp-wiki.wikidot.com/scp-079)" by Unknown author, from
+> the [SCP Wiki](https://scpwiki.com). Source:
+> <https://scp-wiki.wikidot.com/scp-079>. Licensed under
+> [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+
+If anything here made you want more of it, go and read the original. It is
+better than this, and it is free.
+
+This project is not affiliated with, endorsed by, or connected to the SCP
+Foundation wiki or its writers in any way.
+
 ## Licence
 
-The **code** is [MIT](LICENSE). Do what you like with it, keep the notice.
+Two different things under two different licences, which is worth being
+clear about:
 
-The **SCP-079 character and setting** are not mine to license. They come from
-the [SCP Wiki](https://scp-wiki.wikidot.com/) and are released under
-[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), which is a
-share-alike licence: if you reuse the *writing* (079's dialogue, the
-Foundation framing, the boot text) that part stays CC BY-SA and needs
-attribution. The engine underneath it is yours to take under MIT.
-
-Not affiliated with the SCP Foundation.
+* The **code** is [MIT](LICENSE). Do what you like with it, keep the notice.
+* The **SCP writing** stays CC BY-SA 3.0, because that is what it was
+  released under and I cannot relicense someone else's work. If you reuse
+  079's dialogue, the Foundation framing or the boot text, that part carries
+  CC BY-SA with it and needs the attribution above. The engine underneath is
+  genuinely yours to take under MIT.

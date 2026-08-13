@@ -623,6 +623,13 @@ class App:
             self.console.write("   PRIOR SESSIONS ON RECORD: %d" % self.recall.session_count(),
                                c["system"])
             self.console.blank()
+        # SCP-079 is not ours. CC BY-SA asks for attribution wherever the work
+        # is used, and a line in a README does not reach anyone who only ever
+        # plays the game. The menu is out-of-fiction already, so it costs the
+        # atmosphere nothing to say so here rather than mid-conversation.
+        self.console.write("   SCP-079 IS A FAN PROJECT. THE CHARACTER BELONGS TO",
+                           c["dim"])
+        self.console.write("   THE SCP WIKI COMMUNITY, UNDER CC BY-SA 3.0.", c["dim"])
 
     def menu_status(self):
         c = self.theme

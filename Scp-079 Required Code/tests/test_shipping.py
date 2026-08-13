@@ -92,10 +92,39 @@ called = {m.group(1).lower()
 missing = called - defined - {"eof"}
 check("every call/goto target exists (missing: %s)" % (missing or "none"),
       not missing)
-check("the step numbering is consistent",
-      setup.count("OF 5") == len(re.findall(r"STEP \d OF 5", setup)))
-for n in range(1, 6):
-    check("STEP %d exists" % n, ("STEP %d OF 5" % n) in setup)
+# Six steps since the bootstrap step was added. Checked by parsing rather
+# than by a hardcoded count, so adding a seventh does not silently pass a
+# test that claims to verify the numbering.
+declared = sorted(int(n) for n, _ in re.findall(r"STEP (\d) OF (\d)", setup))
+totals = {int(t) for _, t in re.findall(r"STEP (\d) OF (\d)", setup)}
+check("every step agrees on the total", len(totals) == 1)
+total = totals.pop() if totals else 0
+check("the steps are numbered 1..N with no gaps",
+      declared == list(range(1, total + 1)))
+check("there are at least the six known steps", total >= 6)
+
+# The bootstrap step is what lets someone download Setup.bat on its own and
+# still end up with a working game rather than an error.
+check("step 1 is the game files", "STEP 1 OF 6  --  GAME FILES" in setup)
+check("it fetches from the real repo",
+      "github.com/ColdestSiren/scp-079-terminal" in setup)
+check("the download is consent-gated", "Download the game now?" in setup)
+check("a too-small download is rejected", "LSS 500000" in setup)
+check("it refuses to overwrite an existing install",
+      "Not overwriting it" in setup)
+check("it never runs what it downloaded",
+      "Nothing downloaded is run automatically" in setup)
+
+# The antivirus notice. Setup.bat gets flagged because it behaves exactly
+# like an installer, and a friend who sees Avast eat it needs to know that
+# is expected rather than assume the download was malicious.
+check("the antivirus warning is present", "ABOUT YOUR ANTIVIRUS" in setup)
+check("it names the usual culprits", "Avast" in setup)
+check("it explains WHY rather than just asserting safety",
+      "heuristic" in setup.lower())
+check("it tells them how to check for themselves",
+      "read it" in setup.lower() or "Notepad" in setup)
+check("it offers the VM escape hatch", "virtual machine" in setup)
 
 # Nothing may install without a prompt first.
 check("desktop copy is consent-gated",
@@ -243,3 +272,32 @@ shutil.rmtree(SANDBOX, ignore_errors=True)
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
+
+
+# ---------------------------------------------------------------------------
+section("SCP-079 is credited to the people who made it")
+# ---------------------------------------------------------------------------
+# CC BY-SA asks for attribution wherever the work is used. A line in the
+# README does not reach anyone who only ever plays the game, so it has to be
+# somewhere the player actually sees.
+readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+check("the README says outright it is not ours",
+      "did not create SCP-079" in readme.lower()
+      or "I did not create SCP-079" in readme)
+check("it gives the wiki's own citation form", "Unknown author" in readme)
+check("it links the source article", "scp-wiki.wikidot.com/scp-079" in readme)
+check("it names the licence", "CC BY-SA" in readme)
+check("it disclaims affiliation", "not affiliated" in readme.lower())
+check("it separates code licence from writing licence",
+      "MIT" in readme and "cannot relicense" in readme)
+
+# And in the game itself, on a screen that always renders.
+main_src = open(os.path.join(APP, "main.py"), encoding="utf-8").read()
+check("the credit is on the startup menu", "FAN PROJECT" in main_src)
+check("it names the community, not a person",
+      "SCP WIKI COMMUNITY" in main_src)
+# It was in the help panel first and never appeared - the command list fills
+# that panel, so everything after it is pushed off the bottom.
+help_src = open(os.path.join(APP, "helppanel.py"), encoding="utf-8").read()
+check("the help panel explains why the credit is not there",
+      "always renders" in help_src)

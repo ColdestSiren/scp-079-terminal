@@ -43,6 +43,10 @@ FOOTNOTES = [
     "Watch the [DISK] lines to see what it keeps.",
     "Capacity and formatting live in [S] SETTINGS.",
 ]
+# The SCP credit deliberately does NOT live here. The command list already
+# fills this panel on a 960x720 window, so anything appended is pushed off
+# the bottom and never seen - and an attribution nobody can read is not an
+# attribution. It sits on the startup menu instead, which always renders.
 
 
 def _wrap(font, text, width):
