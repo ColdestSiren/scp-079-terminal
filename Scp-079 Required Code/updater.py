@@ -337,7 +337,16 @@ def download_job(info):
         os.close(handle)
         got = 0
         try:
-            with _open(info["url"], accept="application/octet-stream") as response:
+            # "*/*", NOT "application/octet-stream". GitHub answers the
+            # zipball endpoint with 415 Unsupported Media Type for
+            # octet-stream, and zipball_url is what check() falls back to
+            # whenever a release has no manually uploaded .zip - which is the
+            # ordinary case, since GitHub generates the source archive for
+            # every tag. So the octet-stream header broke the COMMON path and
+            # only worked for a release someone had hand-attached a zip to.
+            # Found by downloading from the real repo; every unit test passed
+            # against hand-built zips that never touched GitHub.
+            with _open(info["url"], accept="*/*") as response:
                 total = info.get("size") or 0
                 try:
                     total = int(response.headers.get("Content-Length") or total)

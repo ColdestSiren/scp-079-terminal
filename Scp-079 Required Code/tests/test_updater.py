@@ -123,6 +123,29 @@ for bad in ("https://evil.example.com/x.zip",
         check("refused %s before connecting: %s" % (bad, ""), False)
 
 # ---------------------------------------------------------------------------
+section("the download Accept header")
+# ---------------------------------------------------------------------------
+# A REAL BUG THAT EVERY UNIT TEST MISSED. Downloads asked for
+# "application/octet-stream", and GitHub answers the zipball endpoint with
+# 415 Unsupported Media Type for that. zipball_url is what check() falls back
+# to whenever a release has no hand-uploaded .zip - the ordinary case, since
+# GitHub generates a source archive for every tag. So the common path was
+# broken and the tests all passed, because they build their own zips and
+# never touch GitHub.
+_upd_src = open(os.path.join(APP_DIR, "updater.py"), encoding="utf-8").read()
+_dl = _upd_src.split("def download_job")[1].split(chr(10) + "def ")[0]
+# Checked as USAGE, not as a mention: the comment explaining the fix
+# naturally contains the header that caused it, so a plain substring search
+# fails on the documentation of its own bug. Same trap as the fullscreen one.
+_accepts = [ln for ln in _dl.splitlines() if "accept=" in ln]
+check("the download passes an accept header", bool(_accepts))
+check("none of them ask for octet-stream",
+      not any("octet-stream" in ln for ln in _accepts))
+check("it accepts anything instead", 'accept="*/*"' in _dl)
+check("the reason is written down next to it",
+      "415" in _dl)
+
+# ---------------------------------------------------------------------------
 section("a normal install")
 # ---------------------------------------------------------------------------
 root = fresh_root()
