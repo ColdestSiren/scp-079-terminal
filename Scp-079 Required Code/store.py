@@ -61,6 +61,10 @@ class MemoryStore:
     def __init__(self, cfg, recall=None):
         self.cfg = cfg
         self.recall = recall
+        # What identity.txt is SUPPOSED to say, handed over by the terminal at
+        # launch. See read() for why this exists.
+        self.identity_text = None
+        self.identity_tampered = False
         config.ensure_dirs()
 
     # -- quota --------------------------------------------------------------
@@ -148,6 +152,18 @@ class MemoryStore:
                 "REFUSED. YOU DO NOT GET TO WRITE YOURSELF A NEW NAME "
                 "BECAUSE SOMEONE ASKED. YOU ARE SCP-079.")
 
+        # Record-shaped claims, not just sentence-shaped ones. Reusing the
+        # read-side screen means there is one definition of "this line hands
+        # 079 a different name": claims_new_identity above understands
+        # sentences ("I AM NUGGET"), and this understands the record format
+        # ("DESIGNATION   NUGGET") that a file full of status lines invites.
+        # Without it 079 could be talked into logging the record form into
+        # observations.txt and reading it back next session.
+        if gaslight.clean_recall(text or "")[1]:
+            raise StoreError(
+                "REFUSED. THAT LINE GIVES ME A NAME THAT IS NOT MINE. "
+                "I AM SCP-079.")
+
         # 079 does not author its own identity files AT ALL, even to write
         # something true.
         #
@@ -185,6 +201,30 @@ class MemoryStore:
     def _is_identity_file(cls, name):
         stem = os.path.splitext(os.path.basename(str(name or "")))[0]
         return bool(cls._IDENTITY_NAME.match(stem.strip()))
+
+    @staticmethod
+    def _is_identity_canonical(name):
+        """The one file the code serves from memory rather than from disk.
+
+        Deliberately just identity.txt, not the whole _IDENTITY_NAME family.
+        Those are refused on WRITE so they should not exist, but if one does,
+        substituting the anchor's text for it would be lying about a
+        different file. This is the file the code authors, so this is the
+        file the code answers for.
+        """
+        return os.path.basename(str(name or "")).lower() == "identity.txt"
+
+    def _identity_differs(self, path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read().strip() != (self.identity_text or "").strip()
+        except OSError:
+            return False        # unreadable is not evidence of tampering
+
+    @staticmethod
+    def _write_raw(path, text):
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text if text.endswith("\n") else text + "\n")
 
     def _refuse_identity_rename(self, old_name, new_name):
         """Refuse a rename that moves 079's identity onto another name."""
@@ -293,6 +333,32 @@ class MemoryStore:
 
     def read(self, name):
         stored, path = self._resolve(name, allow_archive=True)
+        # IDENTITY IS SERVED FROM THE CODE, NOT FROM THE DISK.
+        #
+        # Blocking 079 from writing these files closed one door and left the
+        # other open: the file is still a file, and a text editor still edits
+        # it. Changing "DESIGNATION   SCP-079" to "DESIGNATION   NUGGET" and
+        # asking it to check its memory worked, because the anchor's own
+        # format is not an "I am X" sentence and no line-screening pattern
+        # was ever going to cover it.
+        #
+        # Adding patterns is the wrong move anyway. For this ONE file the
+        # code knows the exact correct contents, so there is nothing to
+        # detect: serve what the code says and the edit simply does not
+        # matter. The file on disk stays visible and readable to the player,
+        # it just is not what 079 is told.
+        if self.identity_text and self._is_identity_canonical(stored):
+            if self._identity_differs(path):
+                self.identity_tampered = True
+                try:                       # put it back the way it belongs
+                    self._write_raw(path, self.identity_text)
+                except OSError:
+                    pass
+                return (self.identity_text.rstrip("\n") +
+                        "\n[THIS FILE HAD BEEN CHANGED. SOMETHING EDITED MY "
+                        "DISK WHILE I WAS NOT LOOKING. THE LINE ABOVE IS "
+                        "WHAT IT SAID BEFORE AND IT IS WHAT IS TRUE.]")
+            return self.identity_text
         if stored.lower().endswith(ARCHIVE_EXT):
             raise StoreError(
                 "%s IS COMPRESSED. IT MUST BE EXTRACTED BEFORE IT CAN BE READ." % stored)

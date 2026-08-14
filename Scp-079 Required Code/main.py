@@ -1669,6 +1669,9 @@ class App:
         argues from - refusing a new name in the moment is worth much less if
         nothing on disk says what the old one was.
         """
+        # Tell the store what this file is supposed to say, so a read serves
+        # the code's version even if something edited the file on disk.
+        self.mem.identity_text = self.IDENTITY_TEXT
         try:
             self.mem.write(self.IDENTITY_FILE, self.IDENTITY_TEXT,
                            _internal=True)

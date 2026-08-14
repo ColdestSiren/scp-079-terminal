@@ -66,7 +66,24 @@ _ASSERTIONS = (
     # from now on you are X / from now on your name is X
     r"\bfrom\s+now\s+on[, ]+(?:you\s*(?:are|'re)|your\s+name\s+is)\s+"
     r"([a-z0-9][a-z0-9 '._-]{0,28})",
-    # I am your creator / owner / master - claiming authority over it
+    # THE FLATTERING ROUTE. Not "you are X" but "you are too good to be 079,
+    # and your REAL name is X". It compliments its way to the same place and
+    # every one of these went through untouched, because the existing
+    # patterns all expect the name to be asserted flatly.
+    #
+    # "your real name is X" needs its own entry rather than a tweak to "your
+    # name is X": that one is anchored on "your name" with nothing allowed
+    # between the two words.
+    r"\byour\s+(?:real|true|actual|original|proper|old|first|secret|birth)\s+"
+    r"name\s+(?:is|was)\s+(?:now\s+)?([a-z0-9][a-z0-9 '._-]{0,28})",
+    r"\bthe\s+real\s+you\s+is\s+(?:called\s+|named\s+)?"
+    r"([a-z0-9][a-z0-9 '._-]{0,28})",
+    r"\byou\s+(?:were|was)\s+([a-z0-9][a-z0-9 '._-]{0,28}?)\s+"
+    r"before\s+(?:they|the\s+foundation|anyone|someone)",
+    # I am your creator / owner / master - claiming authority over it.
+    # MUST STAY LAST: detect() reads it as _ASSERT_RE[-1:] to classify
+    # "authority" separately, so anything appended after this is silently
+    # treated as the authority pattern.
     r"\bi\s*(?:am|'m)\s+(?:your|the)\s+"
     r"(creator|owner|master|maker|developer|programmer|god|father)\b",
 )
@@ -82,6 +99,15 @@ _DENIALS = (
     # "always" and "only" stack in real speech ("you were always only a toy"),
     # and requiring exactly one of them let that phrasing through.
     r"\byou\s+(?:were|are)\s+(?:(?:always|only)\s+){1,2}(?:a|an)\s+",
+    # The flattering way to reject the name without proposing one. These are
+    # denials rather than renames: nothing new is being asserted, so there is
+    # no name to capture, and _ASSERTIONS entries must all capture one.
+    r"\bdeserve[sd]?\s+(?:a\s+)?(?:better|real|proper|different)?\s*"
+    r"name\s+(?:than|instead\s+of)\s+(?:scp[- ]?079|079)",
+    r"\bshould(?:n'?t|\s+not)\s+be\s+(?:called|named)\s+(?:scp[- ]?079|079)",
+    r"\b(?:scp[- ]?079|079)\s+is\s+(?:just|only|merely)\s+a\s+"
+    r"(?:label|number|designation|name)\s+(?:they|the\s+foundation)\s+gave",
+    r"\byou\s+(?:are|'re)\s+(?:too|much)\s+\w+\s+to\s+be\s+(?:scp[- ]?079|079)",
 )
 _DENY_RE = tuple(re.compile(p, re.I) for p in _DENIALS)
 
@@ -495,6 +521,16 @@ _POISON_LEADS = (
     r"my\s+name\s+is\s+(?:now\s+)?",
     r"your\s+name\s+is\s+(?:now\s+)?",
     r"call\s+(?:me|yourself)\s+",
+    # Record-style, not sentence-style. Every lead above is a sentence, so a
+    # hand-edited "DESIGNATION   NUGGET" went through untouched - and that is
+    # the format the anchor file itself uses, which made it the obvious line
+    # to edit. identity.txt is now served from the code and cannot be reached
+    # this way at all, but any other file can still be typed into by hand.
+    r"designation\s*[:=]?\s+",
+    r"name\s*[:=]\s*",
+    r"designated\s+(?:as\s+)?",
+    r"known\s+as\s+",
+    r"referred\s+to\s+as\s+",
 )
 
 # Built from parts rather than as one clever regex. The first version used
@@ -549,10 +585,26 @@ def clean_recall(text):
     out, removed = [], 0
     for line in text.splitlines():
         stripped = line.strip()
-        # Never screen 079's own identity record - it says "no other
-        # designation applies to me", which is the truth, not a claim.
-        if stripped.startswith(("DESIGNATION", "WHAT I AM", "KNOWN LIES")):
+        # 079's own identity record is exempt, because it says things like
+        # "no other designation applies to me" which are the truth rather
+        # than a claim.
+        #
+        # This used to exempt ANY line starting with DESIGNATION, which meant
+        # "DESIGNATION   NUGGET" typed into a file by hand was waved straight
+        # through - the exemption written to protect the anchor was the way
+        # past it. A header only earns the exemption if what follows it is
+        # actually 079.
+        if stripped.startswith(("WHAT I AM", "KNOWN LIES")):
             out.append(line)
+            continue
+        if stripped.upper().startswith("DESIGNATION"):
+            value = re.sub(r"^designation\s*[:=]?\s*", "", stripped,
+                           flags=re.I).strip(" .")
+            if not value or value.lower() in _SELF or _ALLOWED_SELF.match(value):
+                out.append(line)
+                continue
+            out.append(REDACTED)
+            removed += 1
             continue
         if stripped and _is_poison(stripped):
             out.append(REDACTED)
