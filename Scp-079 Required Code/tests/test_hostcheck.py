@@ -268,7 +268,11 @@ import feedback
 
 payload = feedback.compose("bug", "the meter drains oddly", "llama3.2:3b")
 check("the note itself is in the body", "the meter drains oddly" in payload["body"])
-check("the version is attached", "1.0.0" in payload["body"])
+import version as _version
+# Read the build number rather than hardcoding it. These asserted
+# "1.0.0" literally and broke the moment a release was cut, which is
+# exactly when the suite most needs to be trustworthy.
+check("the version is attached", _version.VERSION in payload["body"])
 check("the model is attached", "llama3.2:3b" in payload["body"])
 
 # THE ONE THAT MATTERS. The screen promises the username is not sent, and a
@@ -317,7 +321,8 @@ for args, why in ((("bug", ""), "an empty note"),
 
 capped = feedback.compose("other", "x" * 5000)
 check("an overlong note is capped", len(capped["body"]) < 2100)
-check("the capped note still carries its context", "v1.0.0" in capped["body"])
+check("the capped note still carries its context",
+      ("v" + _version.VERSION) in capped["body"])
 check("three categories are offered", len(feedback.categories()) == 3)
 
 shutil.rmtree(SANDBOX, ignore_errors=True)

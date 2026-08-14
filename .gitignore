@@ -91,3 +91,6 @@ $RECYCLE.BIN/
 # sounds/           ships the explosion gifs and the mp3; the easter eggs
 #                   silently do nothing without them
 # Scp-079.png       the terminal's own image
+
+# One-time gag marker. Must NOT ship, or it is already spent.
+Scp-079 Required Code/duck.txt
