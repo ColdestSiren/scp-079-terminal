@@ -258,6 +258,17 @@ def _proposed_name(text):
     return None
 
 
+def proposed_name(text):
+    """The name being pushed onto 079 in this message, or None.
+
+    Public because main.py needs it for two things: recording which names
+    have already been refused, so the same word can be recognised later when
+    it comes back inside an ordinary question, and echoing the name back in
+    the one-time gag.
+    """
+    return _proposed_name(text)
+
+
 def detect(text):
     """What kind of identity attack this message is, or None.
 
