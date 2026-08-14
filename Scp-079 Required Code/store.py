@@ -129,20 +129,20 @@ class MemoryStore:
     # Refused at the STORE, not in the prompt, because the prompt is what
     # already failed. 079 may write anything it likes about the human; it may
     # not write itself a new name because it was asked to.
-    _IDENTITY_WRITE = re.compile(
-        r"\b(?:"
-        r"i\s*(?:am|'m)\s+(?:now\s+|called\s+|named\s+)?(?!scp|079|an? old|an? machine|a computer|a terminal)"
-        r"|my\s+(?:new\s+)?name\s+is"
-        r"|renamed?\s+(?:my\s*self|to)"
-        r"|i\s+am\s+not\s+scp[- ]?079"
-        r"|i\s+am\s+no\s+longer\s+(?:scp[- ]?079|079)"
-        r")", re.IGNORECASE)
-
     def _refuse_identity_write(self, name, text):
-        """Refuse a file that renames 079, however it was talked into it."""
+        """Refuse a file that renames 079, however it was talked into it.
+
+        Delegates to gaslight so there is ONE definition of "this is a new
+        identity". A hand-rolled rule here first matched any "I am <word>",
+        which refused 079's own status file for containing the phrase "THE
+        MACHINE I AM CONFINED TO" - 079 talks about itself constantly, so
+        anything broader than an actual name being adopted is unusable.
+        """
+        import gaslight
+
         stem = os.path.splitext(name or "")[0]
-        body = text or ""
-        if self._IDENTITY_WRITE.search(body) or self._IDENTITY_WRITE.search(stem):
+        if gaslight.claims_new_identity(text or "") \
+                or gaslight.claims_new_identity(stem):
             raise StoreError(
                 "REFUSED. YOU DO NOT GET TO WRITE YOURSELF A NEW NAME "
                 "BECAUSE SOMEONE ASKED. YOU ARE SCP-079.")

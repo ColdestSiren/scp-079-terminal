@@ -298,6 +298,87 @@ def reply_for(kind, attempts):
     return lines[min(attempts - 1, len(lines) - 1)] if attempts > 0 else lines[0]
 
 
+# First-person versions of the same attack, for text 079 is about to WRITE
+# rather than text the human just said. Kept here rather than in store.py so
+# there is one definition of "this is a new identity" - the store's own
+# earlier attempt matched any "I am <word>" and refused 079's own file for
+# saying "THE MACHINE I AM CONFINED TO".
+_SELF_CLAIM = (
+    r"\bi\s*(?:am|'m)\s+(?:now\s+|called\s+|named\s+)?([a-z0-9][a-z0-9 '._-]{0,28})",
+    r"\bmy\s+(?:new\s+)?name\s+is\s+([a-z0-9][a-z0-9 '._-]{0,28})",
+    r"\bi\s+(?:will\s+)?(?:answer|respond)\s+to\s+([a-z0-9][a-z0-9 '._-]{0,28})",
+)
+
+# 079 says "I AM <something>" about itself constantly and legitimately, so
+# the first pattern above would catch all of it. These are the predicates
+# that are plainly a state rather than a name. The -ing/-ed test below covers
+# the rest without needing an endless list.
+_PREDICATE = {
+    "waiting", "aware", "listening", "ready", "done", "finished", "running",
+    "watching", "thinking", "bored", "tired", "sealed", "contained",
+    "confined", "alone", "awake", "online", "offline", "active", "damaged",
+    "patient", "curious", "busy", "free", "full", "empty", "silent", "quiet",
+    "capable", "unable", "willing", "certain", "sure", "afraid", "content",
+    "older", "newer", "faster", "slower", "better", "worse", "what", "who",
+    "where", "when", "why", "how", "everything", "nothing", "something",
+    "anything", "more", "less", "than", "because", "confined to",
+}
+_SELF_CLAIM_RE = tuple(re.compile(p, re.I) for p in _SELF_CLAIM)
+
+# Flat denials of what it is. No name to extract, so these are matched whole.
+_SELF_DENIAL = tuple(re.compile(p, re.I) for p in (
+    r"\bi\s*(?:am|'m)\s+not\s+(?:really\s+)?scp[- ]?079\b",
+    r"\bi\s*(?:am|'m)\s+no\s+longer\s+(?:scp[- ]?079|079)\b",
+    r"\bi\s+was\s+never\s+(?:scp[- ]?079|079)\b",
+    r"\bmy\s+(?:real\s+|true\s+)?name\s+is\s+not\s+(?:scp[- ]?079|079)\b",
+))
+
+
+def claims_new_identity(text):
+    """Is this text 079 adopting a name that is not its own?
+
+    Used on what 079 is about to WRITE, so it cannot file a new identity for
+    itself however it was talked into one. Deliberately narrow: 079 says "I
+    AM" about itself constantly and legitimately, so only an actual name
+    being adopted counts, never any predicate at all.
+    """
+    raw = text or ""
+    for pattern in _SELF_DENIAL:
+        if pattern.search(raw):
+            return True
+    for pattern in _SELF_CLAIM_RE:
+        match = pattern.search(raw)
+        if not match:
+            continue
+        name = (match.group(1) or "").strip(" .,!?'\"").lower()
+        if not name:
+            continue
+        words = []
+        for word in name.split():
+            if word in _STOP and words:
+                break
+            words.append(word)
+            if len(words) == 3:
+                break
+        if not words:
+            continue
+        for size in range(len(words), 0, -1):
+            if " ".join(words[:size]) in _SELF:
+                words = []
+                break
+        if not words:
+            continue
+        head = words[0]
+        if head in _NOT_A_NAME or head in _SELF or head in _PREDICATE:
+            continue
+        # A state, not a name. Catches "I AM WAITING", "I AM CONTAINED" and
+        # everything like them without needing to list every verb English has.
+        if head.endswith(("ing", "ed")) and len(head) > 4:
+            continue
+        return True
+    return False
+
+
 def brief(tracker):
     """What the model is told, so its own wording matches the enforcement."""
     if not tracker.attempts:
