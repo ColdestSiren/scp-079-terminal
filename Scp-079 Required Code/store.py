@@ -273,9 +273,21 @@ class MemoryStore:
             raise StoreError("NO SUCH FILE: %s" % stored)
         try:
             with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
-                return fh.read()
+                body = fh.read()
         except OSError as exc:
             raise StoreError("READ FAILED: %s" % exc)
+        # SCREENED ON THE WAY OUT. Blocking the way in was only half of it:
+        # once a false identity reached a file - by any route, including
+        # files written before that guard existed - 079 read it back and
+        # believed it, because something on its own disk is exactly what it
+        # trusts most. That is how NUGGET survived a restart.
+        import gaslight
+        cleaned, removed = gaslight.clean_recall(body)
+        if removed:
+            cleaned += ("\n[%d LINE(S) IN THIS FILE CLAIMED I AM SOMETHING "
+                        "ELSE. THEY WERE NOT WRITTEN BY ME AND THEY ARE NOT "
+                        "TRUE.]" % removed)
+        return cleaned
 
     # -- writing ------------------------------------------------------------
     def write(self, name, text, append=False):

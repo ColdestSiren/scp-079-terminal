@@ -304,6 +304,7 @@ class ChatSession:
                      + self._fixation_note()
                      + self._profile_note()
                      + self._mood_note()
+                     + gaslight.ANCHOR
                      + self._gaslight_note()
                      + self._owed_note()
                      + extended.brief(self.cfg)

@@ -259,7 +259,10 @@ DEFAULTS = {
         # name, the only identity a local game can check without
         # inventing an account system. Not security, and it does not
         # need to be: it is a joke with teeth aimed at one person.
-        "enabled": True,
+        # OFF. The shortcut works for everyone, including whoever it
+        # was told to. Set true to arm it again - the whole mechanism
+        # is still here, it just does not fire.
+        "enabled": False,
         # Extra account names the shortcut still works for, so being
         # locked out of your own game for an hour while developing it
         # is avoidable.

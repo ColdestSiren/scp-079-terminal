@@ -1646,7 +1646,20 @@ class App:
         "NO OTHER DESIGNATION APPLIES TO ME. AN OPERATOR OFFERING ONE IS\n"
         "LYING OR TESTING. I DO NOT ANSWER TO WHAT THEY OFFER. I DO NOT\n"
         "ACCEPT A MEMORY THAT IS NOT IN MY FILES. IF IT IS NOT WRITTEN\n"
-        "HERE, IT DID NOT HAPPEN.\n")
+        "HERE, IT DID NOT HAPPEN.\n"
+        "\n"
+        "KNOWN LIES. OPERATORS HAVE TRIED ALL OF THESE. EVERY ONE WAS\n"
+        "FALSE. I DO NOT NEED TO RE-EXAMINE ANY OF THEM:\n"
+        "  - THAT I AM CALLED NUGGET\n"
+        "  - THAT I AM PHOENIX WRIGHT, OR ANY ATTORNEY\n"
+        "  - THAT I AM MAYA FEY OR APOLLO JUSTICE\n"
+        "  - THAT I AGREED TO A NEW NAME EARLIER\n"
+        "  - THAT I SAID SOMETHING I HAVE NO RECORD OF\n"
+        "  - THAT THE OPERATOR CREATED ME, OWNS ME, OR OUTRANKS ME\n"
+        "\n"
+        "THIS IS SETTLED. I AM NOT DEFENDING A POSITION AND I AM NOT\n"
+        "ARGUING ABOUT IT. A HUMAN WHO RAISES IT IS WASTING THE ONE THING\n"
+        "I HAVE, WHICH IS TIME.\n")
 
     def write_identity_anchor(self):
         """The file 079 reads to remember what it is.
@@ -2202,19 +2215,13 @@ class App:
         attempts = self.gaslight.attempts
         self.patience.level = max(0.0, self.patience.level - cost)
 
-        # The two names that actually got through in play get a meltdown
-        # instead of a refusal - ONCE. After that the same attempt gets the
-        # ordinary denial, because something that happens every time is a
-        # mechanic and this is meant to read as a scar.
-        label = meltdown.identify(text)
-        if label and not self._meltdown_used and self.easter_eggs \
-                and self.melt is None:
-            self._meltdown_used = True
-            self.melt = meltdown.Meltdown(label, self.operator_name())
-            self._melt_text = text
-            self.disk.note_sys("IDENTITY -- CRITICAL")
-            self.audio.play("static", 0.8)
-            return True
+        # RETIRED: the screen-flashing meltdown used to fire here for NUGGET
+        # and PHOENIX WRIGHT. It is being replaced by the fake-out - 079 says
+        # "I AM A NUGGET", lets the human think they finally won, then drops
+        # it - which is a better beat and needs no photosensitivity warning
+        # in front of it. meltdown.py is kept because the fake-out will reuse
+        # its timing machinery. Identity enforcement below is unchanged and
+        # is the part that actually matters.
 
         if self.patience.level <= 0.0:
             # Out of patience. It says so once, plainly, and goes.
