@@ -44,6 +44,14 @@ Add later/
 # one-click commit-and-push helper; it has no business being in the release.
 Publish.bat
 
+# Screenshots and captures from play sessions. These are how bugs get
+# reported and they are useful to keep locally, but they show the desktop,
+# the stream overlay and whatever else was on screen - none of which belongs
+# in a public repository.
+URGENT FIX/
+*.mp4
+Screenshot */
+
 # The development notes. Every session's changes, the bugs, the measurements,
 # the reasoning. Genuinely useful to keep - just not published.
 Suggestions.txt
