@@ -12,6 +12,7 @@ on the spot, which is also the only sane way to test a malicious archive.
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -101,8 +102,43 @@ check("a path with extra segments is rejected",
       updater.repo({"updates": {"repo": "a/b/c"}}) is None)
 check("an injected space is rejected",
       updater.repo({"updates": {"repo": "a b/c"}}) is None)
-# The default config must leave the feature dormant.
-check("shipped default is empty", config.DEFAULTS["updates"]["repo"] == "")
+# The shipped default points at this project's own home. It was empty once,
+# which meant the update feature shipped dead: nobody finds the setting that
+# turns it on, so a fix pushed to the repo would never reach anyone running
+# the game. Tie it to the actual git remote so the two cannot drift apart.
+_shipped = config.DEFAULTS["updates"]["repo"]
+check("shipped default names a repo", updater.repo(config.DEFAULTS) is not None)
+check("shipped default is well formed", updater.repo(config.DEFAULTS) == _shipped)
+
+_remote = ""
+try:
+    _remote = subprocess.check_output(
+        ["git", "remote", "get-url", "origin"],
+        cwd=APP_DIR, stderr=subprocess.DEVNULL,
+        text=True, timeout=20).strip()
+except Exception:
+    _remote = ""
+if _remote:
+    _slug = _remote.replace("https://github.com/", "").strip("/")
+    if _slug.endswith(".git"):
+        _slug = _slug[:-4]
+    check("shipped default matches the git remote (%s)" % _slug,
+          _shipped.lower() == _slug.lower())
+else:
+    # No git available, or not a clone. Skipping is right here: this is a
+    # consistency check between two things, and with one of them missing
+    # there is nothing to compare. Say so rather than passing quietly.
+    check("SKIPPED remote comparison - no git remote found", True)
+
+# Clearing the repo must still fully disable the feature, so opting out is
+# always possible.
+check("clearing the repo disables updates",
+      updater.repo(config._deep_merge(config.DEFAULTS,
+                                      {"updates": {"repo": ""}})) is None)
+check("check_on_start off disables updates",
+      not updater.enabled(config._deep_merge(
+          config.DEFAULTS, {"updates": {"check_on_start": False}})))
+
 check("check_on_start defaults on",
       config.DEFAULTS["updates"]["check_on_start"] is True)
 check("prereleases default off",

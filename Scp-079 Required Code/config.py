@@ -270,12 +270,20 @@ DEFAULTS = {
     },
 
     "updates": {
-        # "owner/name" on GitHub. EMPTY BY DEFAULT AND THAT IS DELIBERATE:
-        # with no repo set the whole feature stays dormant and never touches
-        # the network. Shipping a guess here would mean every copy of the
-        # game quietly contacting some stranger's project and offering their
-        # files as an update, which is a supply chain with extra steps.
-        "repo": "",
+        # "owner/name" on GitHub - this project's own home, which is also
+        # where the copy you are running was downloaded from.
+        #
+        # This was empty for a while, on the reasoning that a default repo
+        # means every copy phones somewhere on start. That reasoning still
+        # holds for a GUESSED repo - pointing at a stranger's project and
+        # offering their files as an update is a supply chain with extra
+        # steps. It does not hold for this one. Left empty, the update
+        # feature ships dead and nobody ever finds the setting that turns it
+        # on, so a fix pushed here would never reach anyone.
+        #
+        # Clearing this back to "" still fully disables updates, and so does
+        # turning off check_on_start below.
+        "repo": "ColdestSiren/scp-079-terminal",
         # Look once, in the background, while the menu is up. Failures are
         # silent - no network is not an error worth interrupting anyone over.
         "check_on_start": True,
