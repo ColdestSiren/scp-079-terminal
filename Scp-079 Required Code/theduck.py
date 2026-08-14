@@ -87,7 +87,18 @@ def lines(name):
     his own word coming back at him.
     """
     shown = (str(name or "").strip() or "THAT").upper()
-    return [BEAT_ONE % shown, BEAT_PAUSE, BEAT_TWO % shown]
+    return [
+        BEAT_ONE % shown,
+        PAUSE_BEFORE_WAIT,      # he gets a second to think he won
+        BEAT_PAUSE,
+        PAUSE_BEFORE_TURN,      # and a longer one before it turns around
+        BEAT_TWO % shown,
+    ]
+
+
+def spoken(beats):
+    """Just the words, for logging. Drops the silences."""
+    return [b for b in beats if not isinstance(b, (int, float))]
 
 
 def marker_path():

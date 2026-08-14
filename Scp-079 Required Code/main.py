@@ -420,6 +420,7 @@ class App:
 
         # queued canned speech (confrontations, refusals) - one line at a time
         self._say_queue = []
+        self._say_hold_until = 0.0      # queued silences; see drain_say_queue
         # deleted-log confrontation
         self._confront_missing = []
         self._confront_timer = 0.0
@@ -549,7 +550,8 @@ class App:
         """Queue several canned lines; they type out one after another."""
         for line in lines:
             self._say_queue.append(line)
-            if log and self.session is not None:
+            if log and self.session is not None \
+                    and not isinstance(line, (int, float)):
                 self.session.log(self.personality.speaker, line)
 
     def drain_say_queue(self):
@@ -557,7 +559,17 @@ class App:
             return
         if self.session is not None and getattr(self.session, "busy", False):
             return
-        self.say(self._say_queue.pop(0))
+        # A queued NUMBER is a silence, not a line. Canned lines otherwise
+        # follow each other the instant the typing stops, which is fine for
+        # ordinary output and wrong for anything with a beat in it - a pause
+        # is the only thing that can make a line land after the one before.
+        if time.monotonic() < self._say_hold_until:
+            return
+        item = self._say_queue.pop(0)
+        if isinstance(item, (int, float)):
+            self._say_hold_until = time.monotonic() + float(item)
+            return
+        self.say(item)
         self.audio.play("relay", 0.55)
 
     # -- menu ---------------------------------------------------------------
@@ -2232,7 +2244,7 @@ class App:
             gag = theduck.lines(pushed)
             self.say_lines(gag)
             if self.session is not None:
-                self.session.record(text, " ".join(gag))
+                self.session.record(text, " ".join(theduck.spoken(gag)))
             return True
 
         # RETIRED: the screen-flashing meltdown used to fire here for NUGGET
