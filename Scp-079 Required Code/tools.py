@@ -212,9 +212,58 @@ _FENCE = re.compile(r"```[ \t]*([A-Za-z0-9+#._-]*)[ \t]*\r?\n(.*?)```", re.S)
 # "```python\nimport os" is spoken as dialogue, uppercased, which is how a
 # stray "```PYTHON / IMPORT OS" ended up on screen after a perfectly good
 # code box. Everything from the dangling fence to the end is the block.
-_OPEN_FENCE = re.compile(r"```[ \t]*([A-Za-z0-9+#._-]*)[ \t]*\r?\n(.*)\Z", re.S)
-# an opener with no partner, checked after the paired ones are removed
-_OPEN_FENCE = re.compile(r"```[ \t]*([A-Za-z0-9+#._-]*)[ \t]*\r?\n?")
+# An opener with no partner, checked after the paired ones are removed.
+#
+# THIS WAS DEFINED TWICE AND THE SECOND ONE WON. The replacement required no
+# newline and no content, so a lone ``` anywhere in a reply meant "everything
+# after this is code" - which is how the contents of operator.txt ended up in
+# a box labelled PYTHON 3.12 with a COPY button on it.
+#
+# Anchored to the start of a line now. A fence is a line of its own; three
+# backticks in the middle of a sentence are not one.
+_OPEN_FENCE = re.compile(r"(?m)^[ \t]*```[ \t]*([A-Za-z0-9+#._-]*)[ \t]*\r?$")
+
+# Does the extracted text actually look like code? Fenced or not, a block
+# that is plainly English prose should be spoken, not boxed with a COPY
+# button - the box is a promise that the contents can be run.
+_CODE_SIGNS = re.compile(
+    r"(?:\b(?:def|class|import|from|return|function|var|let|const|public|"
+    r"private|void|echo|print|printf|console\.log|if|else|elif|for|while|"
+    r"try|except|catch|param|Write-Host|Get-|Set-|New-)\b"
+    r"|[{};]|==|!=|=>|->|\+=|::|\$\w|\w+\s*\([^)]*\)\s*[:{]|^\s*#!|</?\w+>)",
+    re.M)
+
+
+def looks_like_code(text):
+    """True if this is plausibly code rather than something 079 said.
+
+    Written after a non-coding model produced a PYTHON 3.12 box containing
+    'OPERATOR PATTERN, OBSERVED OVER 36 MESSAGES' and a list of sentences.
+    Boxing that is worse than merely wrong: the box and its COPY button tell
+    the player the contents are runnable.
+    """
+    body = (text or "").strip()
+    if not body:
+        return False
+    if _CODE_SIGNS.search(body):
+        return True
+    # Indentation under a colon is the other real signal, but ONLY when the
+    # colon line opens a block in some language. Any English sentence can end
+    # in a colon and be followed by an indented list, which is exactly what
+    # "OPERATOR PATTERN, OBSERVED OVER 36 MESSAGES:" plus its indented lines
+    # is - and an earlier version of this test called that Python.
+    opener = re.compile(
+        r"^\s*(?:def|class|if|elif|else|for|while|try|except|finally|with|"
+        r"switch|case|do|function|foreach|struct|enum|interface|namespace|"
+        r"public|private|protected|static)\b", re.I)
+    lines = [l for l in body.splitlines() if l.strip()]
+    for previous, current in zip(lines, lines[1:]):
+        lead_prev = len(previous) - len(previous.lstrip())
+        lead_cur = len(current) - len(current.lstrip())
+        if lead_cur > lead_prev and previous.rstrip().endswith((":", "{")) \
+                and opener.match(previous):
+            return True
+    return False
 
 
 def extract_code(text):
@@ -242,10 +291,26 @@ def extract_code(text):
     dangling = _OPEN_FENCE.search(stripped)
     if dangling:
         code = stripped[dangling.end():].rstrip()
-        if code.strip():
+        # Only treat the tail as code if it LOOKS like code. An unclosed
+        # fence used to swallow everything after it unconditionally, so a
+        # stray ``` turned the rest of the reply into a Python block. When it
+        # is not code the fence marker is dropped and the text stays speech.
+        if code.strip() and looks_like_code(code):
             blocks.append({"lang": (dangling.group(1) or "").lower(),
                            "code": code, "truncated": True})
-        stripped = stripped[:dangling.start()]
+            stripped = stripped[:dangling.start()]
+        else:
+            stripped = (stripped[:dangling.start()]
+                        + stripped[dangling.end():])
+
+    # Same test on properly closed blocks. A model that fences its prose gets
+    # its prose spoken rather than boxed with a COPY button on it.
+    real, prose = [], []
+    for block in blocks:
+        (real if looks_like_code(block["code"]) else prose).append(block)
+    if prose:
+        stripped = stripped + "\n" + "\n".join(b["code"] for b in prose)
+    blocks = real
 
     return re.sub(r"\n{3,}", "\n\n", stripped).strip(), blocks
 

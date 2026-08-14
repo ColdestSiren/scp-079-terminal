@@ -2364,9 +2364,12 @@ class App:
         c = self.theme
         for index, (box, header) in self.code_frames().items():
             block = self.code_blocks[index - 1]
-            clipped = box.clip(pygame.Rect(0, self.renderer.MARGIN_TOP - 2,
-                                           self.size[0],
-                                           self.renderer.content_bottom))
+            # Rect takes a HEIGHT, not a bottom edge. content_bottom is a Y
+            # coordinate, so passing it directly made the clip region extend
+            # far past the screen and stop clipping anything at the bottom.
+            top = self.renderer.MARGIN_TOP - 2
+            clipped = box.clip(pygame.Rect(0, top, self.size[0],
+                                           max(0, self.renderer.content_bottom - top)))
             if clipped.height <= 4:
                 continue
             # a slightly lifted panel, then its outline
@@ -2376,7 +2379,12 @@ class App:
             surface.blit(panel, clipped.topleft)
             pygame.draw.rect(surface, c["dim"], clipped, 1)
 
-            if header.bottom > self.renderer.MARGIN_TOP:
+            # The band must be drawn where the HEADER actually is, and only
+            # when the header is genuinely on screen. Testing the clipped
+            # rect instead pinned the label to the top of the content area
+            # whenever the real header had scrolled off above it, printing
+            # "PYTHON 3.12" straight over whatever line was there.
+            if header.top >= top and header.bottom <= self.renderer.content_bottom:
                 band = header.clip(clipped)
                 if band.height > 2:
                     strip = pygame.Surface((band.width, band.height))

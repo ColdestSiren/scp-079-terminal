@@ -477,6 +477,16 @@ class ChatSession:
             if self.pending_code and self.code_refused():
                 self.pending_code = []
                 spoken = spoken.strip() or self.personality.code_refusal
+            # A NON-CODING MODEL HAS NO BUSINESS PRODUCING A CODE BOX. The
+            # persona already tells it that it does not help, so anything
+            # fenced coming back from one of these is a glitch rather than an
+            # answer - and boxing it puts a COPY button under something
+            # nobody asked for. Seen in play on llama3.2:3b, which produced a
+            # box titled PYTHON 3.12 containing 079's own memory file.
+            if self.pending_code and not tuning.is_coding_model(self.model):
+                spoken = (spoken.strip() + "\n"
+                          + "\n".join(b["code"] for b in self.pending_code)).strip()
+                self.pending_code = []
             # The fallback exists for when finalize() cleans away everything,
             # but it has to be command-stripped too. A reply that is ONLY a
             # command leaves `spoken` empty, and an un-stripped fallback would
