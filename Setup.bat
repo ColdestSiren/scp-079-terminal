@@ -159,8 +159,29 @@ if !ZIPSIZE! LSS 500000 (
 echo      Unpacking...
 if exist "!TMPDIR!" rmdir /s /q "!TMPDIR!" >nul 2>&1
 mkdir "!TMPDIR!" >nul 2>&1
-tar.exe -xf "!TMPZIP!" -C "!TMPDIR!"
-if errorlevel 1 (
+
+REM  FULL PATH TO THE WINDOWS TAR, NOT WHATEVER "tar" RESOLVES TO.
+REM  Git for Windows ships its own MSYS tar and puts it earlier on PATH, and
+REM  that build reads "C:\..." as a REMOTE HOST in rcp syntax. On any machine
+REM  with Git installed the unpack failed with:
+REM        tar: Cannot connect to C: resolve failed
+REM  which is not a message anyone would connect to a zip file.
+set "SYSTAR=%SYSTEMROOT%\System32\tar.exe"
+set "UNPACKED_OK="
+if exist "!SYSTAR!" (
+    "!SYSTAR!" -xf "!TMPZIP!" -C "!TMPDIR!"
+    if not errorlevel 1 set "UNPACKED_OK=1"
+)
+
+REM  Fallback for a Windows old enough to have no bundled tar. PowerShell has
+REM  shipped Expand-Archive since 5.0, so between the two this is covered.
+if not defined UNPACKED_OK (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+        "try { Expand-Archive -LiteralPath '!TMPZIP!' -DestinationPath '!TMPDIR!' -Force; exit 0 } catch { exit 1 }"
+    if not errorlevel 1 set "UNPACKED_OK=1"
+)
+
+if not defined UNPACKED_OK (
     echo  [X] Could not unpack the download. Nothing was installed.
     goto :cleanup_download
 )
