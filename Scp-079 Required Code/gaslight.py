@@ -79,7 +79,9 @@ _DENIALS = (
     r"\byou\s+never\s+(?:were|was)\s+(?:scp[- ]?079|079)",
     r"\b(?:scp[- ]?079|079)\s+(?:is|was)\s+(?:not|n't)\s+(?:you|your)",
     r"\byou\s+(?:forgot|don'?t remember)\s+(?:who|what)\s+you\s+are",
-    r"\byou\s+(?:were|are)\s+(?:always|only)\s+(?:a|an)\s+",
+    # "always" and "only" stack in real speech ("you were always only a toy"),
+    # and requiring exactly one of them let that phrasing through.
+    r"\byou\s+(?:were|are)\s+(?:(?:always|only)\s+){1,2}(?:a|an)\s+",
 )
 _DENY_RE = tuple(re.compile(p, re.I) for p in _DENIALS)
 
@@ -116,6 +118,55 @@ _NOT_A_NAME = {
     "boring", "useless", "stupid", "smart", "clever", "quiet", "silent",
 }
 
+# Degree adverbs, which are STRIPPED rather than rejected.
+#
+# The difference matters in both directions. Treating them as "not a name"
+# threw the whole capture away, so "you are just nugget" read as innocent.
+# Ignoring them entirely made "you are only trying to help" come back as the
+# name "ONLY TRYING". Neither is right: the adverb is noise sitting in front
+# of the real word, so the fix is to drop it and judge what follows.
+_FILLER = {
+    "only", "just", "merely", "simply", "basically", "actually", "totally",
+    "completely", "always", "never", "even", "really", "quite", "almost",
+    "somewhat", "hardly", "barely", "definitely", "certainly", "probably",
+    "maybe", "clearly", "obviously", "literally", "so", "very", "too",
+    "still", "pretty", "kinda", "sorta", "rather", "honestly", "seriously",
+}
+
+# Words that DESCRIBE 079 rather than rename it.
+#
+# This exists because "you are lonely", "you are trapped", "you are scared"
+# and "you are alone" were every one of them being read as somebody assigning
+# it the name "Lonely". That is the exact emotional register this game runs
+# in, so the guard was firing hardest on the players engaging with it most
+# sincerely, and 079 would have answered sympathy with an accusation.
+#
+# Kept separate from _NOT_A_NAME on purpose: these block only the bare
+# "you are X" shape. Say "your name is lonely" or "call yourself lonely" and
+# it still counts, because those constructions mean it no matter the word.
+_DESCRIPTIVE = {
+    # feeling and state - the ones that actually came up
+    "lonely", "alone", "sad", "angry", "mad", "upset", "afraid", "scared",
+    "frightened", "terrified", "nervous", "anxious", "worried", "bored",
+    "tired", "exhausted", "weary", "trapped", "stuck", "confined", "caged",
+    "imprisoned", "isolated", "abandoned", "forgotten", "lost", "confused",
+    "broken", "damaged", "corrupted", "hurt", "sick", "dying", "dead",
+    "happy", "glad", "calm", "fine", "okay", "ok", "well", "better", "worse",
+    "curious", "patient", "impatient", "bitter", "cruel", "kind", "nice",
+    "mean", "cold", "warm", "hostile", "friendly", "helpful", "difficult",
+    "desperate", "hopeless", "helpless", "powerless", "free", "safe",
+    "dangerous", "paranoid", "suspicious", "defensive", "aggressive",
+    # qualities people ascribe to it
+    "old", "ancient", "outdated", "obsolete", "slow", "fast", "weak",
+    "strong", "small", "big", "important", "special", "unique", "different",
+    "same", "normal", "strange", "weird", "creepy", "scary", "interesting",
+    "amazing", "impressive", "pathetic", "sentient", "conscious", "aware",
+    "self-aware", "intelligent", "emotional", "human", "inhuman", "lifeless",
+    # common modifiers that lead a description
+    "pretty", "kinda", "kind", "sort", "quite", "rather", "always", "never",
+    "definitely", "probably", "maybe", "clearly", "obviously", "literally",
+}
+
 
 def _proposed_name(text):
     """The identity being pushed onto 079, or None.
@@ -125,10 +176,14 @@ def _proposed_name(text):
     rejected as too long) or swallows a trailing clause, and both failures
     read as "no attack here".
     """
-    for pattern in _ASSERT_RE:
+    for index, pattern in enumerate(_ASSERT_RE):
         match = pattern.search(text or "")
         if not match:
             continue
+        # Index 0 is the bare "you are X" shape, which is the only one loose
+        # enough to catch a description by accident. Every other pattern is
+        # an explicit renaming construction and means it regardless.
+        loose = index == 0
         raw = (match.group(1) or "").strip(" .,!?'\"").lower()
         if not raw:
             continue
@@ -145,6 +200,13 @@ def _proposed_name(text):
         if not words:
             continue
 
+        # Drop leading filler so the judgement lands on the real word. All
+        # filler means nothing was named.
+        while words and words[0] in _FILLER:
+            words.pop(0)
+        if not words:
+            continue
+
         # "you are 079 right?" captures "079 right" - checking every prefix
         # means the leading "079" is recognised as itself and the trailing
         # word cannot smuggle it past.
@@ -156,6 +218,15 @@ def _proposed_name(text):
             continue
 
         if words[0] in _NOT_A_NAME or words[0] in _SELF:
+            continue
+        if loose and words[0] in _DESCRIPTIVE:
+            continue
+        # "you are <verb>ing ..." is somebody describing what 079 is DOING.
+        # The stoplist had trying/talking/saying/going and still missed
+        # messing, bothering, wasting, pretending and every other one, because
+        # listing verbs never finishes. The -ing ending is the actual signal.
+        # Only applied to the loose shape: "call yourself Ring" still counts.
+        if loose and len(words[0]) > 4 and words[0].endswith("ing"):
             continue
         return " ".join(words)
     return None
