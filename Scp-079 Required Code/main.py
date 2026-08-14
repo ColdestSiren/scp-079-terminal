@@ -1617,7 +1617,7 @@ class App:
                 "SESSION     %d" % self.recall.session_id,
                 "OPERATOR    HAS SPOKEN TO ME %d TIMES ACROSS ALL SESSIONS"
                 % self.recall.exchanges(),
-            ] + self._host_lines()))
+            ] + self._host_lines()), _internal=True)
         except store_mod.StoreError:
             pass        # full; it will notice when its own writes start failing
         # Written even if self.txt could not be. They are independent, and an
@@ -1670,7 +1670,8 @@ class App:
         nothing on disk says what the old one was.
         """
         try:
-            self.mem.write(self.IDENTITY_FILE, self.IDENTITY_TEXT)
+            self.mem.write(self.IDENTITY_FILE, self.IDENTITY_TEXT,
+                           _internal=True)
         except store_mod.StoreError:
             pass        # storage full; the prompt still carries the persona
 

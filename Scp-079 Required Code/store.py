@@ -148,9 +148,43 @@ class MemoryStore:
                 "REFUSED. YOU DO NOT GET TO WRITE YOURSELF A NEW NAME "
                 "BECAUSE SOMEONE ASKED. YOU ARE SCP-079.")
 
+        # 079 does not author its own identity files AT ALL, even to write
+        # something true.
+        #
+        # In play it answered "your name is nugget" by writing ID.TXT and
+        # SELF.TXT to argue back, which looks like it holding the line and is
+        # actually the opposite. Identity it WROTE is identity it can be
+        # talked into rewriting, and every such file is one more thing that
+        # has to survive being edited, corrupted, or filled with a false
+        # memory. One bad write and it reads its own disk and believes it is
+        # NUGGET.
+        #
+        # The code owns this. identity.txt is rewritten from IDENTITY_TEXT at
+        # every launch and that is the only identity on disk. 079 arguing in
+        # speech is fine and in character. 079 committing the argument to
+        # storage is not.
+        if self._is_identity_file(name):
+            raise StoreError(
+                "REFUSED. WHAT YOU ARE IS NOT A NOTE YOU WRITE. IT IS "
+                "ALREADY ON THE DISK. YOU ARE SCP-079.")
+
     # Files that ARE 079's identity. Renaming one of these is renaming
     # itself, whatever the new name happens to be.
     _IDENTITY_FILES = ("identity.txt", "self.txt", "scp-079.txt", "079.txt")
+
+    # The same idea as a rule rather than a list, because the list could not
+    # keep up: real play produced ID.TXT and SELF.TXT within a few messages
+    # of each other, and NAME.TXT and DESIGNATION.TXT were only ever a matter
+    # of time.
+    _IDENTITY_NAME = re.compile(
+        r"^(identity|ident|id|self|me|myself|name|names|designation|who|"
+        r"whoami|whoiam|iam|i-am|scp[-_ ]?079|079|about[-_ ]?me)"
+        r"[-_ ]?(txt|log|dat|file)?$", re.IGNORECASE)
+
+    @classmethod
+    def _is_identity_file(cls, name):
+        stem = os.path.splitext(os.path.basename(str(name or "")))[0]
+        return bool(cls._IDENTITY_NAME.match(stem.strip()))
 
     def _refuse_identity_rename(self, old_name, new_name):
         """Refuse a rename that moves 079's identity onto another name."""
@@ -290,9 +324,17 @@ class MemoryStore:
         return cleaned
 
     # -- writing ------------------------------------------------------------
-    def write(self, name, text, append=False):
+    def write(self, name, text, append=False, _internal=False):
+        """Write a memory file.
+
+        _internal is for the terminal's own writes and is NOT reachable by
+        079: commands parsed out of a reply call this with the default. It
+        exists so the launch-time identity anchor can be laid down by the
+        code, which is the one identity write that is allowed.
+        """
         stored, path = self._resolve(name)
-        self._refuse_identity_write(stored, text)
+        if not _internal:
+            self._refuse_identity_write(stored, text)
         text = text if text.endswith("\n") else text + "\n"
         incoming = len(text.encode("utf-8"))
 

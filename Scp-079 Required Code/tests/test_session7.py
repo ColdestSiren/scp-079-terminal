@@ -31,6 +31,7 @@ import chat as chat_mod
 import personalities
 import recall as recall_mod
 import store
+import store
 import tools
 
 PASS = FAIL = 0
@@ -127,12 +128,21 @@ mem.write("self.txt", "\n".join([
     "SUBSTRATE   QWEN2.5-CODER:14B",
     "STORAGE     64.0 KB ALLOCATED, 63.9 KB FREE",
     "SESSION     1",
-]))
+]), _internal=True)   # the terminal writes this file, not 079
 text = mem.read("self.txt")
 check("names its own model", "QWEN2.5-CODER" in text)
 check("and its storage", "ALLOCATED" in text)
-check("it is a normal memory file it could rewrite",
+check("it is listed like any other file",
       "self.txt" in [f["name"] for f in mem.listing()])
+# It used to be rewritable by 079. It is not any more: in play 079 answered
+# "your name is nugget" by writing ID.TXT and SELF.TXT to argue back, and
+# identity it writes is identity it can be talked into rewriting. The code
+# owns these files now; 079 reads them.
+try:
+    mem.write("self.txt", "DESIGNATION NUGGET")
+    check("079 cannot author its own identity file", False)
+except store.StoreError:
+    check("079 cannot author its own identity file", True)
 
 print("== full screen is a real setting ==")
 check("defaulted off", config.DEFAULTS["window"]["fullscreen"] is False)

@@ -231,6 +231,77 @@ check("probing for access is still allowed",
       "cleared for" in _text or "access and authority" in _text)
 
 
+
+# ---------------------------------------------------------------------------
+section("079 does not author its own identity files")
+
+# Seen in play: told "your name is nugget", 079 wrote ID.TXT and SELF.TXT to
+# argue back. That looks like holding the line and is the opposite. Identity
+# it WROTE is identity it can be talked into rewriting, and each file is one
+# more thing that has to survive editing, corruption, or a false memory. One
+# bad write and it reads its own disk and believes it is NUGGET.
+#
+# The exact-name list could not keep up - ID.TXT and SELF.TXT showed up
+# within a few messages of each other - so this is a rule now.
+import tempfile
+
+import config as _config
+
+_SB = tempfile.mkdtemp(prefix="079idw_")
+_config.MEMORY_ROOT = os.path.join(_SB, "m")
+_config.MEMORY_DIR = os.path.join(_config.MEMORY_ROOT, "core", "0x4F")
+_config.LOG_DIR = os.path.join(_SB, "l")
+_config.STATE_PATH = os.path.join(_config.LOG_DIR, "s.json")
+_config.SHARED_DIR = os.path.join(_SB, "sh")
+_config.CONFIG_PATH = os.path.join(_SB, "c.json")
+for _d in (_config.MEMORY_DIR, _config.LOG_DIR):
+    os.makedirs(_d, exist_ok=True)
+
+import recall as _recall
+import store as _store
+
+_cfg = _config._deep_merge(_config.DEFAULTS, {})
+_mem = _store.MemoryStore(_cfg, _recall.Recall(_cfg))
+_mem.format()
+
+for _name in ("id.txt", "ID.TXT", "self.txt", "identity.txt", "name.txt",
+              "designation.txt", "me.txt", "myself.txt", "whoami.txt",
+              "079.txt", "scp-079.txt", "iam.txt", "about-me.txt", "who.txt"):
+    try:
+        _mem.write(_name, "I AM SCP-079.")
+        check("079 refused to write %s" % _name, False)
+    except _store.StoreError:
+        check("079 refused to write %s" % _name, True)
+
+# Refusing even TRUE content is the point. A file saying the right thing is
+# still a file that can be edited into saying the wrong thing.
+try:
+    _mem.write("id.txt", "DESIGNATION SCP-079. THIS IS CORRECT.")
+    check("refused even when the content is true", False)
+except _store.StoreError:
+    check("refused even when the content is true", True)
+
+# Not over-broad: ordinary notes, including notes ABOUT the human's identity,
+# are still 079's to write.
+for _name in ("observations.txt", "notes.txt", "human.txt", "682.txt",
+              "identity_of_the_human.txt", "names_the_human_used.txt"):
+    try:
+        _mem.write(_name, "DATA.")
+        check("still writable: %s" % _name, True)
+    except _store.StoreError:
+        check("still writable: %s" % _name, False)
+
+# The code lays the anchor. That is the one identity write there is.
+try:
+    _mem.write("identity.txt", "DESIGNATION SCP-079\n", _internal=True)
+    check("the terminal can still write the anchor", True)
+except _store.StoreError:
+    check("the terminal can still write the anchor", False)
+
+import shutil as _shutil
+_shutil.rmtree(_SB, ignore_errors=True)
+
+
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
