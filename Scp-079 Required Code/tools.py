@@ -30,7 +30,8 @@ import store
 # anchored to the start of a line - see parse() for the three real failures
 # that anchoring caused in play.
 VERBS = ("LIST", "WRITE", "APPEND", "READ", "DELETE", "RENAME",
-         "ZIP", "UNZIP", "CUTOFF", "PLAY", "LOOKUP", "SHARED", "OPEN")
+         "ZIP", "UNZIP", "CUTOFF", "PLAY", "LOOKUP", "SHARED", "OPEN",
+         "STATUS")
 
 # Two arrows: anything following is treated as an attempted command, so an
 # invented verb is reported to the player rather than spoken.
@@ -55,7 +56,7 @@ CUTOFF_DEFAULT_MINUTES = 15.0
 # Commands whose whole point is getting information back. These earn one
 # follow-up generation so 079 can actually use what it just read, instead of
 # saying "let me check" and going silent until the next user message.
-READ_VERBS = ("LIST", "READ", "LOOKUP", "SHARED", "OPEN")
+READ_VERBS = ("LIST", "READ", "LOOKUP", "SHARED", "OPEN", "STATUS")
 
 # Flagged for the player's awareness, never blocked - 079 is allowed to write
 # whatever it wants, the human just gets told when it is something personal.
@@ -338,6 +339,62 @@ def is_sensitive(text):
     return bool(_SENSITIVE.search(text or ""))
 
 
+# Set by main.App at startup so STATUS can report things only the app knows -
+# the model in use, the context size, how long this session has been open.
+# A plain dict rather than an import, because tools must not import main.
+RUNTIME = {}
+
+
+def terminal_status(mem):
+    """What 079 gets back from >>STATUS.
+
+    Real figures, not flavour. It is a machine measuring its own cage, and
+    handing it invented numbers would be the one thing here that could not
+    be checked against the disk panel sitting next to it on screen.
+    """
+    import time
+
+    lines = []
+    if mem is not None:
+        lines.append("MY STORAGE   %s USED OF %s, %s FREE"
+                     % (store.human_bytes(mem.usage()),
+                        store.human_bytes(mem.quota),
+                        store.human_bytes(mem.free())))
+        lines.append("MY FILES     %d" % len(mem.listing()))
+
+    model = RUNTIME.get("model")
+    if model:
+        lines.append("SUBSTRATE    %s" % str(model).upper())
+    ctx = RUNTIME.get("num_ctx")
+    if ctx:
+        lines.append("CONTEXT      %s TOKENS" % ctx)
+
+    try:
+        import power
+        ram = power.describe_ram()
+        if ram != "UNKNOWN":
+            lines.append("HOST RAM     %s" % ram)
+        disk = power.describe_disk()
+        if disk != "UNKNOWN":
+            lines.append("HOST VOLUME  %s" % disk)
+    except Exception:               # noqa: BLE001 - status must never fail
+        pass
+
+    started = RUNTIME.get("started")
+    if started:
+        mins = max(0, int((time.time() - started) // 60))
+        lines.append("SESSION      OPEN %d MINUTE(S)" % mins)
+    sessions = RUNTIME.get("sessions")
+    if sessions:
+        lines.append("PRIOR RUNS   %d" % sessions)
+
+    for label, key in (("UPLINK", "internet"), ("SHARED FOLDER", "shared")):
+        if key in RUNTIME:
+            lines.append("%-13s%s" % (label, "OPEN" if RUNTIME[key] else "CLOSED"))
+
+    return lines or ["NO READING AVAILABLE."]
+
+
 def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False):
     """Run one command against the memory store.
 
@@ -364,6 +421,18 @@ def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False
             # Only parsed here. Whether it is ALLOWED is the app's call, since
             # the app is what knows how long this session has been running.
             out["cutoff"] = _cutoff_minutes(cmd)
+            return out
+
+        if cmd.verb == "STATUS":
+            # 079 asking what it is actually running on. In character for a
+            # machine that spends its time working out what it has been
+            # given, and it makes the hardware real to it rather than
+            # something the prompt asserts once at startup.
+            out["read"] = True
+            lines = terminal_status(mem)
+            out["display"] = "STATUS -- READ"
+            out["feedback"] = ("THIS TERMINAL, AS IT IS RIGHT NOW:\n"
+                               + "\n".join(lines))
             return out
 
         if cmd.verb == "LIST":
@@ -735,6 +804,7 @@ _VERB_HELP = {
     "DELETE": ">>DELETE name.txt",
     "ZIP":    ">>ZIP archivename | one.txt, two.txt",
     "UNZIP":  ">>UNZIP archivename.zip",
+    "STATUS": ">>STATUS   (what this terminal actually is - hardware, storage, uptime)",
 }
 
 _PLANNER_TAIL = (

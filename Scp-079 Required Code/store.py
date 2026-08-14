@@ -23,6 +23,7 @@ import time
 import zipfile
 
 import config
+import memlock
 
 TEXT_EXT = ".txt"
 ARCHIVE_EXT = ".zip"
@@ -298,9 +299,15 @@ class MemoryStore:
 
         try:
             # newline="" disables Windows CRLF translation, so the bytes on
-            # disk match the bytes charged against the quota above
-            with open(path, "a" if append else "w", encoding="utf-8", newline="") as fh:
-                fh.write(text)
+            # disk match the bytes charged against the quota above.
+            # Unlocked() gives up the courtesy lock for the duration and
+            # takes it back afterwards - without it 079 would be blocked
+            # from writing to its own memory by its own lock.
+            with memlock.Unlocked(path):
+                with open(path, "a" if append else "w",
+                          encoding="utf-8", newline="") as fh:
+                    fh.write(text)
+            memlock.hold(path)
         except OSError as exc:
             raise StoreError("WRITE FAILED: %s" % exc)
 
@@ -330,7 +337,9 @@ class MemoryStore:
         # file became the new identity. A door bolted on one side only.
         self._refuse_identity_rename(stored_old, stored_new)
         try:
-            os.replace(old_path, new_path)
+            with memlock.Unlocked(old_path, new_path):
+                os.replace(old_path, new_path)
+            memlock.hold(new_path)
         except OSError as exc:
             raise StoreError("RENAME FAILED: %s" % exc)
         self._manifest_drop([stored_old])
@@ -342,7 +351,8 @@ class MemoryStore:
         if not os.path.isfile(path):
             raise StoreError("NO SUCH FILE: %s" % stored)
         try:
-            os.remove(path)
+            with memlock.Unlocked(path):
+                os.remove(path)
         except OSError as exc:
             raise StoreError("DELETE FAILED: %s" % exc)
         self._manifest_drop([stored])
@@ -420,7 +430,8 @@ class MemoryStore:
             raise StoreError("EXTRACTION FAILED: %s" % exc)
 
         try:
-            os.remove(path)
+            with memlock.Unlocked(path):
+                os.remove(path)
         except OSError:
             pass
         self._manifest_drop([stored])

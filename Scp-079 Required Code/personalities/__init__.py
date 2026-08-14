@@ -158,6 +158,15 @@ class Personality:
     def is_out_of_character(self, text):
         return self._matches(self.out_of_character_patterns, text)
 
+    silence_patterns = ()
+    silence_replies = ()
+
+    def wants_silence(self, text):
+        """Told to be quiet. Answered by the terminal, not the model - a small
+        model handed 'shut up' simply obeys, which hands the human control of
+        whether 079 speaks at all."""
+        return self._matches(self.silence_patterns, text)
+
     def matches_insult(self, text):
         return self._matches(self.insult_patterns, text)
 

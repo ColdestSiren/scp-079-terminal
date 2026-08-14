@@ -228,6 +228,14 @@ DEFAULTS = {
         "background": True,
         "background_idle_seconds": 120.0,
         "background_min_gap": 300.0,
+        # Hold 079's files open while the terminal runs, so the player
+        # cannot edit them mid-conversation - the way any open program
+        # keeps its own files busy. A courtesy lock, not protection:
+        # closing the game releases everything, and the tamper detection
+        # is what actually handles editing behind its back.
+        # OFF by default. A file that will not open is surprising if you
+        # did not ask for it.
+        "lock_files": False,
     },
 
     "updates": {

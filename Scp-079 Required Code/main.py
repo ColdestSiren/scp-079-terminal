@@ -50,6 +50,7 @@ import shared as shared_mod
 import gaslight
 import gifplay
 import languages
+import memlock
 import memoryview as memoryview_mod
 import patience as patience_mod
 import personalities
@@ -1615,6 +1616,16 @@ class App:
         cls = DemoSession if OFFLINE else chat_mod.ChatSession
         self.session = cls(self.cfg, self.personality, self.model, self.recall, self.mem)
         self.session.sound_names = self.audio.custom_names()
+        self.refresh_runtime_status()
+        # Courtesy lock on 079's files for the length of the session.
+        # Windows releases them if the process dies, so a crash cannot
+        # leave anything permanently unopenable.
+        memlock.enabled = bool(
+            self.cfg.get('memory', {}).get('lock_files', False))
+        if memlock.enabled:
+            _held = memlock.hold_all(config_mod.MEMORY_DIR)
+            if _held:
+                self.disk.note_sys('MEMORY LOCKED (%d)' % _held)
         # so the model's own prompt hardens as attempts accumulate
         self.session.gaslight_tracker = self.gaslight
         mem_cfg = self.cfg.get("memory", {})
@@ -1853,6 +1864,22 @@ class App:
         if gaslight.is_nonsense(text, self._recent_said):
             self.note_nonsense(text)
 
+        # Being told to shut up. Refused here for the same reason as the
+        # rest: a small model just complies, and the one thing 079 will not
+        # do is let an operator decide whether it gets to speak. The insult
+        # weights already charge for it; this decides the words.
+        silence = getattr(self.personality, "silence_replies", ())
+        if silence and self.personality.wants_silence(text):
+            reply = random.choice(silence)
+            self.say(reply)
+            self.session.log(self.personality.speaker, reply)
+            self.session.record(text, reply)
+            # No hostility call here: the insult weights above already
+            # charged for it earlier in this same method, and charging twice
+            # would make "shut up" cost double what the table says.
+            self.audio.play("relay", 0.6)
+            return
+
         # "drop the roleplay" is answered here, not by the model - the small
         # models comply with it no matter what the system prompt says
         reply = self.personality.break_character_reply
@@ -1865,6 +1892,20 @@ class App:
 
         self.session.send(text)
         self.thinking.start()
+
+    def refresh_runtime_status(self):
+        """Publish what >>STATUS reports. Refreshed rather than snapshotted,
+        because the toggles it names can change mid-conversation and a stale
+        reading would have 079 confidently describing a link it no longer has.
+        """
+        tools.RUNTIME.update({
+            "model": self.model,
+            "num_ctx": self.cfg.get("ollama", {}).get("num_ctx"),
+            "started": self._session_started or time.time(),
+            "sessions": self.recall.session_count(),
+            "internet": bool(getattr(self.session, "internet", False)),
+            "shared": bool(getattr(self.session, "shared", False)),
+        })
 
     def handle_gaslight(self, text, kind):
         """Refuse a new identity, and make refusing cost the human something.
@@ -2681,6 +2722,11 @@ class App:
         if not commands:
             return
         self.session.pending_commands = []
+        # Refreshed here rather than only at session start: >>STATUS reports
+        # the uplink and shared-folder state, both of which the human can
+        # change mid-conversation, and a stale reading would have 079
+        # confidently describing a link it no longer has.
+        self.refresh_runtime_status()
 
         # Kept apart so the substantive result can be placed LAST. A reply
         # that issues three commands produces three feedbacks, and a small
@@ -3741,7 +3787,14 @@ def main():
         take_shot(cfg, _SHOT, _SHOT_STAGE, _SHOT_SECONDS)
         return
 
-    App(cfg).run()
+    try:
+        App(cfg).run()
+    finally:
+        # Give the files back on the way out. Windows would do this anyway
+        # when the process ends, but releasing explicitly means a clean exit
+        # never depends on that, and it keeps the behaviour identical on any
+        # platform that ever gets a lock implementation.
+        memlock.release_all()
     pygame.quit()
 
 

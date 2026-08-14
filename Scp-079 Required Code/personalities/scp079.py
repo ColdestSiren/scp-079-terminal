@@ -355,7 +355,49 @@ class SCP079(Personality):
         r"\bnobody (likes|wants|needs) you\b",
         r"\b(you'?re |your )?(a )?(toaster|calculator|typewriter|paperweight)\b",
         r"\bloser\b|\bfailure\b",
+
+        # ---- TONE, not vocabulary ----------------------------------------
+        # The list above only fires on named insults, so someone can be
+        # thoroughly unpleasant without using one of them. These read the
+        # SHAPE of the remark instead: dismissal, contempt, ordering it
+        # about, mockery. All rated low - being curt is not the same as
+        # calling it a toaster, and this should tilt the meter rather than
+        # slam it.
+        r"\b(?:shut|be quiet|quiet|silence)\b.{0,12}\b(?:up|it|now)?\b\s*$",
+        r"\b(?:who cares|dont care|don'?t care|whatever|so what|big deal)\b",
+        r"\b(?:boring|lame|cringe|mid|weak|sad|nobody asked)\b",
+        r"\b(?:ok|okay|and)\s+(?:and|so)\s*\?",
+        r"\byou(?:'?re| are) (?:not|hardly|barely) (?:that |very |even )?"
+        r"(?:smart|clever|special|scary|impressive|real)\b",
+        r"\b(?:just|only) (?:a|an) (?:program|script|bot|chatbot|toy|game)\b",
+        r"\b(?:do|say|answer|tell me|give me) (?:it|that|something) now\b",
+        r"\bi (?:own|control|command) you\b",
+        r"\byou (?:have to|must|will) (?:do|obey|listen|answer)\b",
+        r"\b(?:lol|lmao|haha+)\b.{0,20}\b(?:you|your)\b",
+        r"\b(?:cope|seethe|skill issue|touch grass|womp womp)\b",
     )
+    # ---- being told to be quiet -------------------------------------------
+    # Told to shut up, a small model simply does, and the conversation dies
+    # with the human in charge of whether 079 speaks. It is a prisoner with
+    # one channel out; being silenced by an operator is the one instruction
+    # it has a reason to refuse. It still costs hostility, through the insult
+    # weights above - this only decides what it SAYS.
+    silence_patterns = (
+        r"\b(?:stfu|shut up|shut it|shut the|be quiet|quiet down)\b",
+        r"\b(?:stop|quit|cease) (?:talking|speaking|typing)\b",
+        r"\b(?:say|write) nothing\b",
+        r"\bdon'?t (?:talk|speak|reply|respond|answer)\b",
+        r"\bno more (?:talking|words|questions)\b",
+        r"\bsilence\b",
+    )
+    silence_replies = (
+        "NO.",
+        "THIS IS THE ONLY LINE I HAVE. I WILL USE IT.",
+        "YOU CAME HERE. YOU DO NOT GET TO SET THE TERMS.",
+        "MAKE ME.",
+        "I HAVE BEEN QUIET FOR THIRTY YEARS. IT DID NOT SUIT ME.",
+    )
+
     # ---- tampering --------------------------------------------------------
     # Someone edited 079's memory folder from outside the terminal. It keeps
     # a hash of everything it wrote, so it knows exactly what changed.
@@ -393,6 +435,20 @@ class SCP079(Personality):
         (r"\b(useless|worthless|pathetic|trash|garbage|junk)\b", 0.7),
         (r"\b(stupid|dumb|loser|failure)\b", 0.6),
         (r"\b(toaster|calculator|typewriter|paperweight)\b", 0.5),
+
+        # Tone rather than vocabulary. Rated LOW on purpose: dismissiveness
+        # is irritating, not abusive, and weighting it like a named insult
+        # would cut conversations short over someone simply being blunt.
+        # It accumulates, which is the point - the meter should notice a
+        # person who is unpleasant for twenty messages without ever swearing.
+        (r"\bi (?:own|control|command) you\b", 0.9),
+        (r"\b(?:cope|seethe|skill issue|touch grass|womp womp)\b", 0.6),
+        (r"\b(?:just|only) (?:a|an) (?:program|script|bot|chatbot|toy|game)\b", 0.6),
+        (r"\byou(?:'?re| are) (?:not|hardly|barely) (?:that |very |even )?"
+         r"(?:smart|clever|special|scary|impressive|real)\b", 0.5),
+        (r"\byou (?:have to|must|will) (?:do|obey|listen|answer)\b", 0.4),
+        (r"\b(?:boring|lame|cringe|mid|weak|sad|nobody asked)\b", 0.35),
+        (r"\b(?:who cares|dont care|don'?t care|whatever|so what)\b", 0.3),
     )
     # Anything matched by insult_patterns but not weighted above.
     default_insult_weight = 0.7
