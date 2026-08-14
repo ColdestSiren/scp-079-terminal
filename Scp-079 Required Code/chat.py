@@ -13,6 +13,7 @@ import re
 import config
 import gaslight
 import languages
+import minigame
 import mood
 import ollama
 import profile079
@@ -201,6 +202,13 @@ class ChatSession:
         tracker = getattr(self, "gaslight_tracker", None)
         return gaslight.brief(tracker) if tracker else ""
 
+    def _owed_note(self):
+        """Honest answers it owes for losing the trace. Persisted, so a debt
+        does not quietly expire when the terminal is closed."""
+        if self.recall is None:
+            return ""
+        return minigame.brief(self.recall)
+
     def _mood_note(self):
         """How it SOUNDS at this hostility, as opposed to what it may do.
 
@@ -296,6 +304,7 @@ class ChatSession:
                      + self._profile_note()
                      + self._mood_note()
                      + self._gaslight_note()
+                     + self._owed_note()
                      + self._meddling_note()}
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing

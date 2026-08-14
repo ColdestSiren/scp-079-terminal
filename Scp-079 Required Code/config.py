@@ -162,6 +162,12 @@ DEFAULTS = {
         # the screen; this one just is there, for two frames, and then is not.
         "chain_duration": 0.07,
         "chain_alpha": 255,
+
+        # The trace race. 079 offers it itself when it is already
+        # annoyed - the player cannot open it. Roughly a 7% chance
+        # every five minutes, and only above half the cutoff
+        # threshold, so it stays an event rather than a menu item.
+        "minigames": True,
     },
 
     "ollama": {

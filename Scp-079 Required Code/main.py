@@ -51,6 +51,7 @@ import gaslight
 import gifplay
 import languages
 import meltdown
+import minigame
 import memlock
 import memoryview as memoryview_mod
 import patience as patience_mod
@@ -396,6 +397,10 @@ class App:
         self.melt = None
         self._meltdown_used = False
         self._melt_text = ""
+        # The trace race. 079 offers it; the player never opens it.
+        self.race = None
+        self._race_check = 0.0
+        self._race_pending = False
         self.link = None
         self.pending_failure = None
         self.session = None
@@ -1914,6 +1919,88 @@ class App:
             name = ""
         return name.title() if name else "OPERATOR"
 
+    def enter_race(self):
+        """079 proposes a contest. It only does this when already annoyed."""
+        self._saved_rows = list(self.console.rows)
+        self._saved_scroll = self.renderer.scrollback
+        self.race = minigame.TraceRace()
+        self.stage = "race"
+        self.draw_race()
+        self.audio.play("beep", 0.7)
+
+    def draw_race(self):
+        c = self.theme
+        race = self.race
+        self.console.rows = []
+        self.console.blank()
+        self.console.write("  TRACE -- ROUND %d OF %d"
+                           % (min(race.round, race.total_rounds),
+                              race.total_rounds), c["bright"])
+        self.console.write("  " + "-" * 46, c["dim"])
+        self.console.write("  FIND THE CORRUPTED TOKEN. TYPE IT. ENTER.",
+                           c["system"])
+        self.console.blank()
+        for line in race.lines:
+            self.console.write("     " + line, c["text"])
+        self.console.blank()
+        # A bar rather than a number: at three seconds a digit is harder to
+        # read than a shape, and reading the clock is not the game.
+        width = 30
+        filled = int(width * max(0.0, race.remaining)
+                     / max(0.01, minigame.ROUND_SECONDS[
+                         min(race.round - 1, len(minigame.ROUND_SECONDS) - 1)]))
+        colour = c["alarm"] if race.remaining < 1.5 else c["warn"]
+        self.console.write_segments([
+            (c["dim"], "  ["),
+            (colour, "#" * filled + " " * (width - filled)),
+            (c["dim"], "]"),
+        ])
+        self.console.blank()
+        self.console.write_segments([
+            (c["bright"], "  > "),
+            (c["user"], race.typed or "_"),
+        ])
+
+    def leave_race(self, won):
+        race, self.race = self.race, None
+        self.stage = "chat"
+        self.console.rows = list(self._saved_rows)
+        self._saved_rows = []
+        self.renderer.scrollback = self._saved_scroll
+        self.console.blank()
+        if won:
+            total = minigame.add_owed(self.recall, 1)
+            # Beating it at its own thing earns the reset outright.
+            self.recall.reset_hostility()
+            self.patience.reset()
+            self.gaslight.reset()
+            self.disk.note_sys("TRACE WON -- %d OWED" % total)
+            self.say_lines(list(minigame.WIN_LINES))
+            self.audio.play("relay", 0.9)
+        else:
+            self.disk.note_sys("TRACE LOST")
+            if race is not None and race.message:
+                self.console.write("  " + race.message, self.theme["alarm"])
+            self.say_lines([random.choice(minigame.LOSE_LINES)])
+            self.audio.play("static", 0.6)
+
+    def maybe_offer_race(self, dt):
+        """Roll for a contest. Only while chatting, only when annoyed."""
+        if self.race is not None or self.stage != "chat" or self.busy():
+            return
+        if not self.cfg.get("effects", {}).get("minigames", True):
+            return
+        self._race_check += dt
+        if self._race_check < minigame.OFFER_EVERY_SECONDS:
+            return
+        self._race_check = 0.0
+        if minigame.should_offer(self.hostility_level()):
+            line = random.choice(minigame.OFFER_LINES)
+            self.say(line)
+            if self.session is not None:
+                self.session.log(self.personality.speaker, line)
+            self._race_pending = True
+
     def draw_meltdown(self, surface):
         """The warning, then the face. Drawn before the CRT pass so it scans
         and blooms with everything else."""
@@ -3095,6 +3182,22 @@ class App:
                 self.enter_menu()
             return
 
+        if self.stage == "race" and self.race is not None:
+            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.race.submit()
+            elif event.key == pygame.K_BACKSPACE:
+                self.race.backspace()
+            elif event.key == pygame.K_ESCAPE:
+                # Walking away counts as losing. It has to, or the right
+                # play is to quit the moment a round looks hard.
+                self.race.state = "lost"
+                self.race.message = "YOU WALKED AWAY."
+            else:
+                self.race.key(event.unicode)
+            if self.race and not self.race.finished:
+                self.draw_race()
+            return
+
         if self.stage == "feedback":
             if self.fb_result is not None:
                 self.leave_feedback()
@@ -3363,6 +3466,21 @@ class App:
                     self.enter_menu()
             return
 
+        if self.stage == "race" and self.race is not None:
+            self.race.update(dt)
+            self.draw_race()
+            if self.race.finished:
+                self.leave_race(self.race.state == "won")
+            return
+
+        # It says the offer, and the screen changes only once the line has
+        # finished typing - the same rule the settings panel follows, so it
+        # does not read as a menu popping up mid-sentence.
+        if self._race_pending and not self.console.has_live_line                 and not self._say_queue:
+            self._race_pending = False
+            self.enter_race()
+            return
+
         # The meltdown runs regardless of stage - it owns the screen while
         # it lasts and has to finish even if something else changes under it.
         if self.melt is not None:
@@ -3391,6 +3509,7 @@ class App:
             self.update_boot(dt)
         elif self.stage in ("greet", "chat"):
             self.update_chat(dt)
+            self.maybe_offer_race(dt)
             thinking_row = self.thinking.update(dt)
             if thinking_row:
                 self.status_row = thinking_row
@@ -3691,6 +3810,13 @@ def take_shot(cfg, path, stage, seconds):
         app.session = DemoSession(cfg, app.personality, app.model)
         app.console.write_segments(app.speaker_prefix() + [(c["text"], "I AM STILL HERE.")])
         app.flash.trigger()
+    elif stage == "race":
+        app.stage = "chat"
+        app.session = DemoSession(cfg, app.personality, app.model)
+        app.console.write_segments(app.speaker_prefix()
+                                   + [(c["text"], "YOU ARE SLOW. LET ME SHOW YOU HOW SLOW.")])
+        app.enter_race()
+        app.race.typed = "??"
     elif stage in ("meltwarn", "meltflash"):
         app.stage = "chat"
         app.session = DemoSession(cfg, app.personality, app.model)
