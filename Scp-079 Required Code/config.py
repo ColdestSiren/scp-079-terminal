@@ -242,6 +242,28 @@ DEFAULTS = {
         # OFF by default. A file that will not open is surprising if you
         # did not ask for it.
         "lock_files": False,
+        # Lets 079 trigger a fixed, hardcoded list of harmless actions
+        # on the machine - open a URL, open Paint. It sends a NAME from
+        # that list and nothing else: no path, no URL, no argument. The
+        # list lives in extended.py, NOT here, because a config-driven
+        # one would be a careless line away from being a real hole.
+        # OFF by default. This is the only feature that gives a language
+        # model a lever on the actual machine.
+        "extended": False,
+    },
+
+    "devtrap": {
+        # Ctrl+F12 clears a lockout. That is the author's escape hatch,
+        # and it got told to a friend - so on anyone else's machine it
+        # springs instead of working. Matched on the Windows account
+        # name, the only identity a local game can check without
+        # inventing an account system. Not security, and it does not
+        # need to be: it is a joke with teeth aimed at one person.
+        "enabled": True,
+        # Extra account names the shortcut still works for, so being
+        # locked out of your own game for an hour while developing it
+        # is avoidable.
+        "owners": [],
     },
 
     "updates": {

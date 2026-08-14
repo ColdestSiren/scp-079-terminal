@@ -40,8 +40,10 @@ import chat as chat_mod
 import clipboard
 import config as config_mod
 import debugcmds
+import devtrap
 import diskpanel as diskpanel_mod
 import effects as effects_mod
+import extended
 import feedback
 import helppanel as helppanel_mod
 import recall as recall_mod
@@ -380,6 +382,7 @@ class App:
         self.upd_error = None
         self.upd_done = None         # install result, for the restart screen
         self.upd_return = "menu"     # where [N] goes back to
+        self.toast = None            # corner update popup
         # feedback screen
         self.fb_category = None
         self.fb_text = ""
@@ -401,6 +404,10 @@ class App:
         self.race = None
         self._race_check = 0.0
         self._race_pending = False
+        # The dev-shortcut trap. Springs for anyone who is not the
+        # author; the shortcut still works for them.
+        self.trap = None
+        self._trap_lock = False
         self.link = None
         self.pending_failure = None
         self.session = None
@@ -579,6 +586,73 @@ class App:
                 return
         self.upd_check = updater_mod.check_job(self.cfg)
 
+    # -- update toast -------------------------------------------------------
+    TOAST_SECONDS = 18.0
+    TOAST_W = 330
+    TOAST_PAD = 12
+
+    def show_update_toast(self, info):
+        """A corner popup when a new version turns up mid-session.
+
+        Sat in the corner rather than taking the screen, because an update
+        notice that interrupts a conversation is worse than the conversation
+        being one version behind. It carries 079's own face so it is obvious
+        at a glance what the notice is FOR.
+        """
+        self.toast = {
+            "version": info["version"],
+            "remaining": self.TOAST_SECONDS,
+        }
+        self.audio.play("beep", 0.4)
+
+    def update_toast(self, dt):
+        if not self.toast:
+            return
+        self.toast["remaining"] -= dt
+        if self.toast["remaining"] <= 0.0:
+            self.toast = None
+
+    def draw_update_toast(self, surface):
+        """Top right. Never over the disk panel's meters, never over the
+        input line - the two places the player is actually looking."""
+        if not self.toast:
+            return
+        c = self.theme
+        pad = self.TOAST_PAD
+        thumb = 46 if getattr(self.flash, "image", None) is not None else 0
+        line_h = self.font.get_height() + 2
+        height = pad * 2 + line_h * 3
+
+        rows = [
+            ("NEW VERSION READY", c["bright"]),
+            (self.toast["version"], c["warn"]),
+            ("[U] INSTALL   [ESC] LATER", c["dim"]),
+        ]
+        # Sized from the text rather than a guessed constant. A fixed 330px
+        # cut "A NEWER VERSION IS READY" off mid-word and lost the [ESC]
+        # hint entirely, which is the half that tells you how to dismiss it.
+        text_w = max(self.font.size(text)[0] for text, _ in rows)
+        width = min(self.size[0] - 32,
+                    pad * 2 + text_w + (thumb + pad if thumb else 0))
+        x = self.size[0] - width - 16
+        y = 16
+        box = pygame.Rect(x, y, width, height)
+
+        panel = pygame.Surface((width, height))
+        panel.fill(c["bg"])
+        panel.set_alpha(232)
+        surface.blit(panel, box.topleft)
+        pygame.draw.rect(surface, c["warn"], box, 1)
+
+        if thumb:
+            image = pygame.transform.smoothscale(self.flash.image, (thumb, thumb))
+            surface.blit(image, (x + pad, y + pad))
+
+        tx = x + pad + (thumb + pad if thumb else 0)
+        for index, (text, colour) in enumerate(rows):
+            surface.blit(self.font.render(text, True, colour),
+                         (tx, y + pad + index * line_h))
+
     def poll_update_check(self):
         """Drain the check job. Called once a frame from the menu."""
         if self.upd_check is None or not self.upd_check.done.is_set():
@@ -590,6 +664,10 @@ class App:
             if self.stage == "menu":
                 self.draw_menu()
                 self.audio.play("beep", 0.5)
+            else:
+                # Mid-conversation: a corner notice rather than a screen
+                # change, so finding out does not cost the player their turn.
+                self.show_update_toast(info)
 
     def draw_menu(self):
         """Menu content only - kept separate from enter_menu so a headless
@@ -1414,6 +1492,9 @@ class App:
         # Same escape hatch as the lockout, deliberately - one bypass to
         # remember, and someone who found it in the source has earned both.
         if event.key == pygame.K_F12 and (event.mod & pygame.KMOD_CTRL):
+            if devtrap.armed(self.cfg):
+                self.spring_dev_trap()
+                return
             self.unlock_slot(bypassed=True)
             return
         if event.key == pygame.K_BACKSPACE:
@@ -2000,6 +2081,44 @@ class App:
             if self.session is not None:
                 self.session.log(self.personality.speaker, line)
             self._race_pending = True
+
+    def spring_dev_trap(self):
+        """Someone who is not the author tried the developer shortcut."""
+        self.trap = devtrap.Punish()
+        self._trap_lock = True
+        self.stage = "devtrap"
+        self.console.rows = []
+        self.console.blank()
+        self.console.write("  " + devtrap.TAUNT, self.theme["alarm"])
+        self.audio.play("static", 0.9)
+        self.disk.note_sys("DEV PATH -- REFUSED")
+
+    def update_dev_trap(self, dt):
+        if self.trap is None:
+            return
+        if self.trap.update(dt):
+            return
+        self.trap = None
+        if self._trap_lock:
+            self._trap_lock = False
+            # An hour, and the shortcut that caused it will not clear it -
+            # a trap you escape with the thing that sprang it is not a trap.
+            self.recall.lock(devtrap.LOCK_MINUTES * 60.0, reason="devtrap")
+            self.enter_rejected(relock=False)
+
+    def draw_dev_trap(self, surface):
+        """Its face, held steady, then fading. No flashing here: this is not
+        the meltdown, it needs no photosensitivity warning, and a steady
+        stare suits being caught better than a strobe would."""
+        image = getattr(self.flash, "image", None)
+        alpha = self.trap.alpha() if self.trap else 0
+        if image is None or alpha <= 0:
+            return
+        # A copy, because the shared surface carries the subliminal
+        # flicker's own alpha and writing to it would change that too.
+        frame = image.copy()
+        frame.set_alpha(alpha)
+        surface.blit(frame, (0, 0))
 
     def draw_meltdown(self, surface):
         """The warning, then the face. Drawn before the CRT pass so it scans
@@ -2915,6 +3034,7 @@ class App:
         for cmd in commands[:6]:
             result = tools.execute(
                 cmd, self.mem,
+                extended_ok=extended.enabled(self.cfg),
                 internet=bool(self.cfg.get("memory", {}).get("internet")),
                 web_mode=self.cfg.get("memory", {}).get("web_mode", "restricted"),
                 shared_access=bool(self.cfg.get("memory", {}).get("shared_access")))
@@ -3170,6 +3290,9 @@ class App:
             # cannot be typed here - which is exactly when it is most needed.
             # Ctrl+F12 is the same escape hatch on a key.
             if event.key == pygame.K_F12 and (event.mod & pygame.KMOD_CTRL):
+                if devtrap.armed(self.cfg):
+                    self.spring_dev_trap()
+                    return
                 self.recall.clear_lock()
                 self.recall.reset_hostility()
                 self._cutoff_minutes = None
@@ -3181,6 +3304,20 @@ class App:
                 self.probe_result = None
                 self.enter_menu()
             return
+
+        # The toast answers U and ESC wherever it is showing, and only
+        # while it is showing - U is an ordinary character the rest of the
+        # time and must stay typeable.
+        if self.toast and self.stage in ("chat", "greet"):
+            pressed = (event.unicode or "").lower()
+            if event.key == pygame.K_ESCAPE:
+                self.toast = None
+                return
+            if pressed == "u" and not self.text_input.buffer.strip():
+                self.toast = None
+                if self.upd_info:
+                    self.enter_update_offer("chat")
+                return
 
         if self.stage == "race" and self.race is not None:
             if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -3466,6 +3603,12 @@ class App:
                     self.enter_menu()
             return
 
+        # The dev trap owns the screen while it plays out, regardless of
+        # whatever stage was showing when the shortcut was pressed.
+        if self.trap is not None:
+            self.update_dev_trap(dt)
+            return
+
         if self.stage == "race" and self.race is not None:
             self.race.update(dt)
             self.draw_race()
@@ -3492,6 +3635,7 @@ class App:
         # player has already moved on, and dropping it then would mean the
         # banner never appears until the next launch.
         self.poll_update_check()
+        self.update_toast(dt)
 
         if self.stage == "menu":
             if self.probe is not None and self.probe_result is None:
@@ -3588,11 +3732,20 @@ class App:
         # else instead of looking like a modern dialog pasted on top
         if self.help is not None:
             self.help.draw(content)
+        # Corner notice, under the full-screen effects below so a meltdown
+        # still owns the screen outright.
+        self.draw_update_toast(content)
         # The meltdown owns the screen while it runs, over everything else
         # including the ordinary flicker - two full-screen effects at once
         # would read as the renderer breaking rather than as 079 breaking.
         if self.melt is not None:
             self.draw_meltdown(content)
+            return content
+
+        # The dev trap holds its face over the screen for the same reason,
+        # though it does not flash - a steady stare suits this one better.
+        if self.trap is not None:
+            self.draw_dev_trap(content)
             return content
 
         # last, and over everything - for those few frames it IS the screen
@@ -3810,6 +3963,18 @@ def take_shot(cfg, path, stage, seconds):
         app.session = DemoSession(cfg, app.personality, app.model)
         app.console.write_segments(app.speaker_prefix() + [(c["text"], "I AM STILL HERE.")])
         app.flash.trigger()
+    elif stage == "toast":
+        app.stage = "chat"
+        app.session = DemoSession(cfg, app.personality, app.model)
+        app.console.write_segments(app.speaker_prefix()
+                                   + [(c["text"], "YOU ARE STILL HERE.")])
+        app.console.blank()
+        app.console.write_segments(app.user_prefix() + [(c["user"], "yes")])
+        app.show_update_toast({"version": "V1.1.0"})
+    elif stage == "devtrap":
+        app.stage = "chat"
+        app.session = DemoSession(cfg, app.personality, app.model)
+        app.spring_dev_trap()
     elif stage == "race":
         app.stage = "chat"
         app.session = DemoSession(cfg, app.personality, app.model)

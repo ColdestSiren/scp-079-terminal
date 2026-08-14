@@ -31,7 +31,7 @@ import store
 # that anchoring caused in play.
 VERBS = ("LIST", "WRITE", "APPEND", "READ", "DELETE", "RENAME",
          "ZIP", "UNZIP", "CUTOFF", "PLAY", "LOOKUP", "SHARED", "OPEN",
-         "STATUS")
+         "STATUS", "DO")
 
 # Two arrows: anything following is treated as an attempted command, so an
 # invented verb is reported to the player rather than spoken.
@@ -395,7 +395,8 @@ def terminal_status(mem):
     return lines or ["NO READING AVAILABLE."]
 
 
-def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False):
+def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False,
+            extended_ok=False):
     """Run one command against the memory store.
 
     Never raises - a refusal is a result, because 079 is supposed to hear
@@ -421,6 +422,22 @@ def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False
             # Only parsed here. Whether it is ALLOWED is the app's call, since
             # the app is what knows how long this session has been running.
             out["cutoff"] = _cutoff_minutes(cmd)
+            return out
+
+        if cmd.verb == "DO":
+            # Gated on the human having switched it on, checked HERE rather
+            # than trusted to the prompt - 079 is not told the verb exists
+            # when it is off, but a model that guessed it must still be
+            # refused rather than obeyed.
+            import extended
+            if not extended_ok:
+                out["display"] = "REFUSED -- NOT PERMITTED"
+                out["feedback"] = ("YOU CANNOT REACH THIS MACHINE. THE OPERATOR "
+                                   "HAS NOT UNLOCKED IT.")
+                return out
+            ok, message = extended.run(cmd.target)
+            out["display"] = ("EXECUTED %s" % cmd.target.lower()) if ok                 else "REFUSED -- %s" % message[:38]
+            out["feedback"] = message
             return out
 
         if cmd.verb == "STATUS":

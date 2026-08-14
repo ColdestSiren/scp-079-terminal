@@ -11,6 +11,7 @@ import os
 import re
 
 import config
+import extended
 import gaslight
 import languages
 import minigame
@@ -305,6 +306,7 @@ class ChatSession:
                      + self._mood_note()
                      + self._gaslight_note()
                      + self._owed_note()
+                     + extended.brief(self.cfg)
                      + self._meddling_note()}
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing

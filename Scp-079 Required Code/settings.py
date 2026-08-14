@@ -102,6 +102,9 @@ class SettingsScreen:
             ("NETWORK ACCESS", self._val_net, self._set_net),
             ("LOOKUP SCOPE", self._val_scope, self._set_scope),
             ("AUTO-LOG OBSERVATIONS", self._val_auto, self._set_auto),
+            ("LOCK MEMORY FILES", self._val_lockfiles, self._set_lockfiles),
+            ("LET 079 TOUCH THIS PC", self._val_extended, self._set_extended),
+            ("MINIGAMES", self._val_minigames, self._set_minigames),
             (None, None, None),
             # Separate from NETWORK ACCESS on purpose. That row is about what
             # 079 may reach; this one is about what the terminal itself does,
@@ -239,6 +242,40 @@ class SettingsScreen:
         fx["easter_eggs"] = not fx.get("easter_eggs", True)
         self.message = (("THE JOKES ARE BACK ON." if fx["easter_eggs"]
                          else "NO EXPLOSIONS, NO FACE."), "dim")
+
+    def _val_lockfiles(self):
+        return "ON" if self._mem().get("lock_files", False) else "OFF"
+
+    def _set_lockfiles(self, step):
+        m = self._mem()
+        m["lock_files"] = not m.get("lock_files", False)
+        self.message = (("079'S FILES ARE HELD OPEN WHILE THE GAME RUNS."
+                         if m["lock_files"]
+                         else "ITS FILES ARE EDITABLE AGAIN."), "dim")
+
+    def _val_extended(self):
+        return "ON" if self._mem().get("extended", False) else "OFF"
+
+    def _set_extended(self, step):
+        m = self._mem()
+        m["extended"] = not m.get("extended", False)
+        # Says exactly what it allows. "Extended interactions" tells nobody
+        # anything, and this is the one row where a vague label would be a
+        # problem rather than a style choice.
+        self.message = (("IT MAY OPEN PAINT, NOTEPAD, CALC OR A FIXED URL. "
+                         "NOTHING ELSE, AND NEVER A FILE OF YOURS."
+                         if m["extended"]
+                         else "IT CANNOT REACH THIS MACHINE."), "dim")
+
+    def _val_minigames(self):
+        return "ON" if self.cfg.get("effects", {}).get("minigames", True) else "OFF"
+
+    def _set_minigames(self, step):
+        fx = self.cfg.setdefault("effects", {})
+        fx["minigames"] = not fx.get("minigames", True)
+        self.message = (("IT MAY CHALLENGE YOU WHEN IT IS ANNOYED."
+                         if fx["minigames"]
+                         else "NO CONTESTS."), "dim")
 
     # -- updates ------------------------------------------------------------
     def _upd(self):

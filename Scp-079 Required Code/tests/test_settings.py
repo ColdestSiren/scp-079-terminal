@@ -170,13 +170,15 @@ print("== navigation skips spacers and persists ==")
 s, cfg, mem = fresh()
 s.cursor = 0
 seen = set()
-for _ in range(20):
+# Walk further than the list is long. A fixed count silently stopped
+# testing the end of the list every time a row was added.
+for _ in range(len(s.rows) * 2 + 4):
     seen.add(s.cursor)
     s.move(1)
 check("never lands on a spacer",
       all(s.rows[i][0] is not None for i in seen))
 check("stops at the last row rather than wrapping", s.cursor == max(seen))
-for _ in range(20):
+for _ in range(len(s.rows) * 2 + 4):
     s.move(-1)
 check("stops at the first row", s.cursor == row_index(s, "MEMORY CAPACITY"))
 
