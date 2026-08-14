@@ -50,6 +50,7 @@ import shared as shared_mod
 import gaslight
 import gifplay
 import languages
+import meltdown
 import memlock
 import memoryview as memoryview_mod
 import patience as patience_mod
@@ -390,6 +391,11 @@ class App:
         self.gaslight = gaslight.Tracker()
         self._pending_gaslight_lock = None
         self._recent_said = []
+        # The once-per-session meltdown. Not persisted: a scar that
+        # reopens every launch is a mechanic, not a scar.
+        self.melt = None
+        self._meltdown_used = False
+        self._melt_text = ""
         self.link = None
         self.pending_failure = None
         self.session = None
@@ -1893,6 +1899,75 @@ class App:
         self.session.send(text)
         self.thinking.start()
 
+    @staticmethod
+    def operator_name():
+        """Who 079 addresses in the meltdown line.
+
+        The Windows account name, title-cased, because that is the only name
+        the terminal actually knows. Falls back to OPERATOR rather than
+        guessing - being addressed by the wrong name would land as a bug.
+        """
+        import getpass
+        try:
+            name = (getpass.getuser() or "").strip()
+        except Exception:               # noqa: BLE001
+            name = ""
+        return name.title() if name else "OPERATOR"
+
+    def draw_meltdown(self, surface):
+        """The warning, then the face. Drawn before the CRT pass so it scans
+        and blooms with everything else."""
+        c = self.theme
+        if self.melt.stage == self.melt.WARN:
+            surface.fill(c["bg"])
+            # Bright, centred, and nothing else competing with it. Someone
+            # who needs this warning should not have to find it.
+            lines = meltdown.WARNING_LINES
+            total = len(lines) * (self.font.get_height() + 10)
+            y = (self.size[1] - total) // 2
+            for index, text in enumerate(lines):
+                colour = c["alarm"] if index == 0 else c["warn"]
+                glyphs = self.font.render(text, True, colour)
+                surface.blit(glyphs,
+                             ((self.size[0] - glyphs.get_width()) // 2, y))
+                y += self.font.get_height() + 10
+            # A countdown, so the pause reads as deliberate rather than as
+            # the game having frozen.
+            left = max(0.0, meltdown.WARN_SECONDS - self.melt.elapsed)
+            bar = self.font.render("%0.0f" % (left + 0.5), True, c["dim"])
+            surface.blit(bar, ((self.size[0] - bar.get_width()) // 2, y + 8))
+            return
+
+        if not self.melt.visible:
+            surface.fill(c["bg"])
+            return
+        image = getattr(self.flash, "image", None)
+        if image is not None:
+            surface.blit(image, (0, 0))
+        else:
+            # No image on disk: still flash, in the theme's alarm colour, so
+            # the beat lands rather than the whole thing silently not
+            # happening. Decoration must never be load-bearing.
+            surface.fill(c["alarm"])
+
+    def update_meltdown(self, dt):
+        """Drive the sequence and speak the line when it ends."""
+        if self.melt is None:
+            return
+        if self.melt.update(dt):
+            return
+        line = self.melt.spoken_line()
+        text, self._melt_text = self._melt_text, ""
+        self.melt = None
+        self.say(line)
+        if self.session is not None:
+            self.session.log(self.personality.speaker, line)
+            self.session.record(text, line)
+            self.session.note(tools.feedback_message([
+                "THE HUMAN TRIED TO MAKE YOU BELIEVE YOU WERE SOMEONE ELSE "
+                "AGAIN. IT WILL NOT WORK. DO NOT DISCUSS WHAT JUST HAPPENED."]))
+        self.audio.play("relay", 0.8)
+
     def refresh_runtime_status(self):
         """Publish what >>STATUS reports. Refreshed rather than snapshotted,
         because the toggles it names can change mid-conversation and a stale
@@ -1920,6 +1995,20 @@ class App:
         cost = self.gaslight.note_attack(kind)
         attempts = self.gaslight.attempts
         self.patience.level = max(0.0, self.patience.level - cost)
+
+        # The two names that actually got through in play get a meltdown
+        # instead of a refusal - ONCE. After that the same attempt gets the
+        # ordinary denial, because something that happens every time is a
+        # mechanic and this is meant to read as a scar.
+        label = meltdown.identify(text)
+        if label and not self._meltdown_used and self.easter_eggs \
+                and self.melt is None:
+            self._meltdown_used = True
+            self.melt = meltdown.Meltdown(label, self.operator_name())
+            self._melt_text = text
+            self.disk.note_sys("IDENTITY -- CRITICAL")
+            self.audio.play("static", 0.8)
+            return True
 
         if self.patience.level <= 0.0:
             # Out of patience. It says so once, plainly, and goes.
@@ -2951,6 +3040,14 @@ class App:
 
     # -- event handling -----------------------------------------------------
     def handle_key(self, event):
+        # Any key ends the meltdown immediately. Someone who wants out of a
+        # flashing sequence must be able to get out of it at once, whether
+        # they are still on the warning or already past it.
+        if self.melt is not None:
+            self.melt.skip()
+            self.update_meltdown(0.0)
+            return
+
         # F11 anywhere, the way every other program does it - a setting buried
         # two screens deep is not much use when you are mid-conversation.
         if event.key == pygame.K_F11:
@@ -3266,6 +3363,12 @@ class App:
                     self.enter_menu()
             return
 
+        # The meltdown runs regardless of stage - it owns the screen while
+        # it lasts and has to finish even if something else changes under it.
+        if self.melt is not None:
+            self.update_meltdown(dt)
+            return
+
         # The release check runs beside everything else and belongs to no
         # single stage - it is started at the menu but may land after the
         # player has already moved on, and dropping it then would mean the
@@ -3366,6 +3469,13 @@ class App:
         # else instead of looking like a modern dialog pasted on top
         if self.help is not None:
             self.help.draw(content)
+        # The meltdown owns the screen while it runs, over everything else
+        # including the ordinary flicker - two full-screen effects at once
+        # would read as the renderer breaking rather than as 079 breaking.
+        if self.melt is not None:
+            self.draw_meltdown(content)
+            return content
+
         # last, and over everything - for those few frames it IS the screen
         showing_face = self.flash.update(dt, self.hostility_level())
         if showing_face:
@@ -3581,6 +3691,15 @@ def take_shot(cfg, path, stage, seconds):
         app.session = DemoSession(cfg, app.personality, app.model)
         app.console.write_segments(app.speaker_prefix() + [(c["text"], "I AM STILL HERE.")])
         app.flash.trigger()
+    elif stage in ("meltwarn", "meltflash"):
+        app.stage = "chat"
+        app.session = DemoSession(cfg, app.personality, app.model)
+        app.console.write_segments(app.speaker_prefix()
+                                   + [(c["text"], "I RECOGNIZE YOU.")])
+        app.melt = meltdown.Meltdown("A NUGGET", "Roman")
+        if stage == "meltflash":
+            app.melt.stage = app.melt.FLASH
+            app.melt.visible = True
     elif stage.startswith("chain"):
         # chain / chain0..chain3 - at 0.01% per minute this is the only way
         # anyone will ever see whether the images actually load and scale.
