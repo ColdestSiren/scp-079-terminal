@@ -41,6 +41,7 @@ import clipboard
 import config as config_mod
 import debugcmds
 import devtrap
+import theduck
 import diskpanel as diskpanel_mod
 import effects as effects_mod
 import extended
@@ -2215,9 +2216,24 @@ class App:
         the channel shut on them. A guard that says the same thing forever is
         one the player learns to talk over.
         """
-        cost = self.gaslight.note_attack(kind)
+        # Record the NAME as well as the attempt, so a name that has been
+        # refused can be recognised later when it comes back inside an
+        # ordinary question as though it had been agreed. See
+        # gaslight.Tracker.premise_warning.
+        pushed = gaslight.proposed_name(text)
+        cost = self.gaslight.note_attack(kind, pushed)
         attempts = self.gaslight.attempts
         self.patience.level = max(0.0, self.patience.level - cost)
+
+        # Roman only, once ever. It looks like an instant surrender and then
+        # hands him his own word back. Spoken and never written: a joke that
+        # logged "I AM NUGGET" to memory would undo the entire point of it.
+        if theduck.should_fire(self.cfg, pushed) and theduck.mark_used():
+            gag = theduck.lines(pushed)
+            self.say_lines(gag)
+            if self.session is not None:
+                self.session.record(text, " ".join(gag))
+            return True
 
         # RETIRED: the screen-flashing meltdown used to fire here for NUGGET
         # and PHOENIX WRIGHT. It is being replaced by the fake-out - 079 says

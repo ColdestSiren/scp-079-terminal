@@ -13,7 +13,7 @@ offer its own version as an update.
 
 import re
 
-VERSION = "1.0.0"
+VERSION = "1.0.2"
 
 # Tags are compared numerically, not as strings: "1.10.0" is NEWER than
 # "1.9.0" even though it sorts earlier. A leading v is accepted because that
