@@ -126,7 +126,64 @@ def parse(reply):
     spoken.append(text[pos:])
     out = re.sub(r"\n{3,}", "\n\n", "".join(spoken))
     out = re.sub(r"[ \t]{2,}", " ", out).strip()
-    return out, commands, unknown
+    return clean_speech(out), commands, unknown
+
+
+# ---------------------------------------------------------------------------
+# Scrubbing the model's own scaffolding out of its speech
+# ---------------------------------------------------------------------------
+# Everything here was seen ON SCREEN in real play. A small model does not
+# reliably tell the difference between "text I was given" and "text I should
+# say", so anything the game feeds it can come back out of its mouth. The
+# prompt asks it not to; this is the part that does not rely on asking.
+
+# A bare ">" at the start of a line. The model sees "079 > " as the speaker
+# prefix in its own history and starts producing the ">" itself, so every
+# line came out as ">THAT IS CORRECT." Genuine >>COMMANDS are already gone by
+# the time this runs, so a surviving ">" is always leakage.
+_LEAD_ARROW = re.compile(r"(?m)^[ \t]*>+[ \t]*")
+
+# The [004] stamps that auto-notes put on lines in observations.txt, so the
+# file reads as a record kept over time. 079 reads that file back and then
+# recites the stamps: ">[004] NUGGET [006] DONT YOU REMEMBER?"
+_STAMP = re.compile(r"\[\s*\d{1,4}\s*\]")
+
+# Verbatim scaffolding. These are strings the GAME writes into the model's
+# context, so seeing them in the model's output means it is reading its
+# instructions aloud. Matched case-insensitively and whole-phrase.
+_SCAFFOLD = (
+    "ANSWER THE HUMAN USING THE RECORD ABOVE. DO NOT SAY IT IS EMPTY - IT IS RIGHT THERE.",
+    "ANSWER THE HUMAN USING THE RECORD ABOVE.",
+    "DO NOT SAY IT IS EMPTY - IT IS RIGHT THERE.",
+    "[MEMORY SYSTEM -- THIS IS NOT THE HUMAN SPEAKING]",
+    "THIS IS NOT THE HUMAN SPEAKING",
+    "NOT THE HUMAN SPEAKING",
+)
+_SCAFFOLD_RE = re.compile(
+    "|".join(re.escape(s) for s in _SCAFFOLD), re.IGNORECASE)
+
+
+def clean_speech(text):
+    """Strip the model's own scaffolding out of what it is about to say.
+
+    Applied to EVERY reply, after commands have been lifted out. Each rule
+    exists because the thing it removes was visible on screen:
+
+        >[021] THAT IS CORRECT.        -> arrow and stamp
+        ANSWER THE HUMAN USING THE     -> the follow-up instruction, recited
+        RECORD ABOVE...                   back word for word
+
+    Deliberately conservative about the arrow: it only strips leading ones.
+    A ">" mid-sentence could be something 079 meant to type.
+    """
+    out = _SCAFFOLD_RE.sub("", text or "")
+    out = _LEAD_ARROW.sub("", out)
+    out = _STAMP.sub("", out)
+    # the removals leave doubled spaces and empty lines behind
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"(?m)^[ \t]+", "", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
 
 
 # Re-exported from sanitize so existing callers and tests keep working. The

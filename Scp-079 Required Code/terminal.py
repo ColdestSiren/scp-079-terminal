@@ -326,7 +326,15 @@ class Console:
                 head = live["target"][: live["revealed"] - 1]
                 if live["prefix"]:
                     self.rows.append(live["prefix"] + [(live["color"], head)])
-                    live["prefix"] = []
+                    # Keep the COLUMN, drop the text. Clearing the prefix
+                    # outright dumped every line after the first back to
+                    # column 0, so a reply containing a newline broke out of
+                    # the speech column and ran across the whole screen -
+                    # visible all over the play screenshots. A wrapped line
+                    # already indents under its prefix; an explicit newline
+                    # has to do the same or the two disagree.
+                    width = sum(len(text) for _, text in live["prefix"])
+                    live["prefix"] = [(live["color"], " " * width)]
                 else:
                     self.rows.append((live["color"], head))
                 self._trim()

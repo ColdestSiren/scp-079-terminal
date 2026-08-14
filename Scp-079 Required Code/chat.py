@@ -11,6 +11,7 @@ import os
 import re
 
 import config
+import gaslight
 import languages
 import mood
 import ollama
@@ -189,6 +190,17 @@ class ChatSession:
             return 0.0
         return max(0.0, min(1.0, self.recall.hostility() / threshold))
 
+    def _gaslight_note(self):
+        """Standing reminder that it has been told it is someone else.
+
+        The terminal already intercepts each attempt, so this is the second
+        lock rather than the first: it keeps the model from drifting into a
+        borrowed identity across a long conversation even when no single
+        message trips the detector.
+        """
+        tracker = getattr(self, "gaslight_tracker", None)
+        return gaslight.brief(tracker) if tracker else ""
+
     def _mood_note(self):
         """How it SOUNDS at this hostility, as opposed to what it may do.
 
@@ -283,6 +295,7 @@ class ChatSession:
                      + self._fixation_note()
                      + self._profile_note()
                      + self._mood_note()
+                     + self._gaslight_note()
                      + self._meddling_note()}
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing
