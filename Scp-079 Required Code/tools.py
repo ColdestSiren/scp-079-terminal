@@ -29,10 +29,21 @@ import store
 # Any '>>VERB' anywhere in the text starts a command. Deliberately NOT
 # anchored to the start of a line - see parse() for the three real failures
 # that anchoring caused in play.
-_CMD_ANY = re.compile(r">>\s*([A-Za-z_]+)[ \t]*")
-
 VERBS = ("LIST", "WRITE", "APPEND", "READ", "DELETE", "RENAME",
          "ZIP", "UNZIP", "CUTOFF", "PLAY", "LOOKUP", "SHARED", "OPEN")
+
+# Two arrows: anything following is treated as an attempted command, so an
+# invented verb is reported to the player rather than spoken.
+#
+# ONE arrow: only a REAL verb counts. Models drop an arrow constantly - real
+# play produced ">WRITE NOTES.TXT | YOU ARE WRONG ABOUT MY IDENTITY." and
+# ">WRITE MAYA.FEY.", both of which were read out as dialogue, syntax and
+# all. Accepting any word after a single ">" would be worse than the problem
+# though: it would silently swallow ordinary speech that happens to begin
+# with one. Requiring a known verb makes the recovery safe.
+_CMD_ANY = re.compile(
+    r"(?:>>\s*([A-Za-z_]+)|(?<!>)>\s*(%s)\b)[ \t]*" % "|".join(VERBS),
+    re.IGNORECASE)
 
 # 079 may end the conversation itself, but not immediately - it has to have
 # actually been in the conversation first. The app owns the session clock, so
@@ -99,7 +110,8 @@ def parse(reply):
         if match.start() < pos:
             continue                    # inside the previous command's body
         spoken.append(text[pos:match.start()])
-        verb = match.group(1).upper()
+        # group 1 is the ">>anything" form, group 2 the ">KNOWNVERB" one
+        verb = (match.group(1) or match.group(2) or "").upper()
 
         rest = text[match.end():]
         stops = [i for i in (rest.find(">>"), rest.find("\n")) if i != -1]

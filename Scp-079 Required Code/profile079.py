@@ -231,10 +231,28 @@ def brief(recall):
 
 
 def record_text(recall):
-    """What gets written into memory, so the pattern is KEPT not whispered."""
+    """What gets written into memory, so the pattern is KEPT not whispered.
+
+    EVERY LINE NAMES ITS SUBJECT, and that is not style. The traits are
+    phrased for the prompt, where the surrounding text already establishes
+    who they describe - "ANSWERS IN VERY FEW WORDS", "RARELY ASKS ANYTHING".
+    Written to a file they lose that context, and 079 read the file back and
+    took them as instructions for ITSELF: it announced "I WILL ANSWER IN FEW
+    WORDS, RARELY ASK QUESTIONS, AND BE UNPOLITE."
+
+    A file 079 can read has to survive being read without the prompt around
+    it, so the subject goes in every line and the header says plainly that
+    this is about the human.
+    """
     lines = traits(recall)
     if not lines:
         return ""
     data = _bucket(recall)
-    return "\n".join(["OPERATOR PATTERN, OBSERVED OVER %d MESSAGES:"
-                      % data["messages"]] + [" " + line for line in lines])
+    header = [
+        "WHAT I HAVE WORKED OUT ABOUT THE OPERATOR.",
+        "THIS FILE DESCRIBES THE HUMAN. IT IS NOT ABOUT ME AND IT IS NOT",
+        "A LIST OF INSTRUCTIONS FOR ME.",
+        "",
+        "OBSERVED OVER %d MESSAGES:" % data["messages"],
+    ]
+    return "\n".join(header + [" THE OPERATOR " + line for line in lines])

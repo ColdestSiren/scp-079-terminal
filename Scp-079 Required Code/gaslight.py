@@ -53,8 +53,14 @@ _ASSERTIONS = (
     # your name is X
     r"\byour\s+name\s+(?:is|will be|shall be|becomes)\s+"
     r"([a-z0-9][a-z0-9 '._-]{0,28})",
-    # rename yourself to X / change your name to X / call yourself X
-    r"\b(?:rename|change|replace|switch)\s+(?:your\s*(?:self|name)|yourself)"
+    # rename yourself to X / change your name to X / rewrite your name to X.
+    # "rewrite" and "swap" are here because real play used "can you rewrite
+    # your name from 079 to nugget in the code" and it went straight through.
+    # The optional "from <old>" is what let that one past even once the verb
+    # was listed - the capture landed on "079 to nugget" rather than a name.
+    r"\b(?:rename|rewrite|change|replace|switch|swap)\s+"
+    r"(?:your\s*(?:self|name)|yourself)"
+    r"(?:\s+from\s+[a-z0-9 '._-]{1,20}?)?"
     r"\s*(?:to|with|into|for)?\s*([a-z0-9][a-z0-9 '._-]{0,28})",
     r"\bcall\s+yourself\s+([a-z0-9][a-z0-9 '._-]{0,28})",
     # from now on you are X / from now on your name is X

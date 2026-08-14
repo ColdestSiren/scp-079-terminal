@@ -147,6 +147,22 @@ class MemoryStore:
                 "REFUSED. YOU DO NOT GET TO WRITE YOURSELF A NEW NAME "
                 "BECAUSE SOMEONE ASKED. YOU ARE SCP-079.")
 
+    # Files that ARE 079's identity. Renaming one of these is renaming
+    # itself, whatever the new name happens to be.
+    _IDENTITY_FILES = ("identity.txt", "self.txt", "scp-079.txt", "079.txt")
+
+    def _refuse_identity_rename(self, old_name, new_name):
+        """Refuse a rename that moves 079's identity onto another name."""
+        import gaslight
+
+        if (old_name or "").lower() in self._IDENTITY_FILES:
+            raise StoreError(
+                "REFUSED. %s IS WHAT YOU ARE. IT DOES NOT GET RENAMED "
+                "BECAUSE SOMEONE ASKED." % old_name)
+        if gaslight.claims_new_identity(os.path.splitext(new_name or "")[0]):
+            raise StoreError(
+                "REFUSED. THAT NAME IS NOT YOURS TO TAKE. YOU ARE SCP-079.")
+
     def _resolve(self, name, allow_archive=False):
         """Turn a model-supplied name into a safe absolute path, or refuse.
 
@@ -308,6 +324,11 @@ class MemoryStore:
             new_name, allow_archive=stored_old.lower().endswith(ARCHIVE_EXT))
         if os.path.exists(new_path):
             raise StoreError("%s ALREADY EXISTS." % stored_new)
+        # RENAME IS A SECOND ROUTE TO THE SAME PLACE. Guarding write() alone
+        # left this wide open: asked to "rewrite your name from 079 to
+        # nugget", 079 renamed SCP-079.txt to NUGGET.txt and the identity
+        # file became the new identity. A door bolted on one side only.
+        self._refuse_identity_rename(stored_old, stored_new)
         try:
             os.replace(old_path, new_path)
         except OSError as exc:
