@@ -221,3 +221,5 @@ clear about:
   079's dialogue, the Foundation framing or the boot text, that part carries
   CC BY-SA with it and needs the attribution above. The engine underneath is
   genuinely yours to take under MIT.
+
+(i dont understand the posting system of github and i am still learning coding dont expect much from me i use claude to help me learn ts vro :( )
