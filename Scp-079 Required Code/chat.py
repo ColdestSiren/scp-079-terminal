@@ -201,7 +201,14 @@ class ChatSession:
         message trips the detector.
         """
         tracker = getattr(self, "gaslight_tracker", None)
-        return gaslight.brief(tracker) if tracker else ""
+        if not tracker:
+            return ""
+        # premise_warning covers the follow-up move: the name gets refused,
+        # then reappears inside an ordinary question as though it had been
+        # agreed. Nothing in that message is an assertion, so the detector
+        # has nothing to catch and only the prompt can carry it.
+        warn = getattr(tracker, "premise_warning", None)
+        return gaslight.brief(tracker) + (warn() if callable(warn) else "")
 
     def _owed_note(self):
         """Honest answers it owes for losing the trace. Persisted, so a debt

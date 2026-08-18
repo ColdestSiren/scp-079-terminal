@@ -399,6 +399,48 @@ import shutil as _shutil
 _shutil.rmtree(_SB, ignore_errors=True)
 
 
+
+# ---------------------------------------------------------------------------
+section("the exact calls main.py makes")
+
+# Two crashes shipped in one day from this: gaslight.proposed_name did not
+# exist, then Tracker.note_attack existed but took one argument while main.py
+# passed two. Both survived every test because they sit on a code path that
+# only runs when somebody actually tries to rename 079.
+#
+# The static call-site checker cannot see the second one - it is a method on
+# an instance (self.gaslight.note_attack), not module.function - so these
+# call the real things the same way main.py does.
+
+check("gaslight.proposed_name exists", hasattr(gaslight, "proposed_name"))
+check("it returns the pushed name",
+      gaslight.proposed_name("you are nugget") == "nugget")
+check("and None when nothing is pushed",
+      gaslight.proposed_name("what is the weather") is None)
+
+_t = gaslight.Tracker()
+# main.py: cost = self.gaslight.note_attack(kind, pushed)
+_cost = _t.note_attack("rename", "nugget")
+check("note_attack accepts (kind, name)", isinstance(_cost, float))
+check("the name is recorded", "NUGGET" in _t.refused_names)
+
+# Callers that only have the kind must keep working.
+check("note_attack still accepts (kind) alone",
+      isinstance(gaslight.Tracker().note_attack("denial"), float))
+check("a nameless attack records no name",
+      gaslight.Tracker().note_attack("authority", None) is not None)
+
+# chat.py: tracker.premise_warning()
+check("premise_warning exists", hasattr(_t, "premise_warning"))
+_warn = _t.premise_warning()
+check("it names what was refused", "NUGGET" in _warn)
+check("and is empty before anything is refused",
+      gaslight.Tracker().premise_warning() == "")
+
+# chat.py calls gaslight.brief(tracker) then adds the warning to it.
+check("brief accepts a tracker", isinstance(gaslight.brief(_t), str))
+
+
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

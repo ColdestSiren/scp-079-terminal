@@ -94,3 +94,6 @@ $RECYCLE.BIN/
 
 # One-time gag marker. Must NOT ship, or it is already spent.
 Scp-079 Required Code/duck.txt
+
+# Local bug-report screenshots. Never publish.
+Issue/
