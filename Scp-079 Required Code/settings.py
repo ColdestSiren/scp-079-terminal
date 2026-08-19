@@ -71,6 +71,11 @@ class SettingsScreen:
         # mode for; main.App clears it once it has done so
         self.display_dirty = False
         self.confirm_format = False
+        self.confirm_reset = False
+        # Set by main.App. A factory reset has to rewrite the identity
+        # anchor and rebaseline the manifest AFTER the wipe, and only
+        # main knows what the anchor is supposed to say.
+        self.after_reset = None
         self.profile_index = 0
         self.save_slot = "SLOT 1"
         self.rows = self._build_rows()
@@ -88,6 +93,7 @@ class SettingsScreen:
         return [
             ("MEMORY CAPACITY", self._val_quota, self._set_quota),
             ("FORMAT MEMORY", self._val_format, None),
+            ("FACTORY RESET", self._val_reset, None),
             (None, None, None),
             ("PROCESSOR", self._val_processor, self._set_processor),
             ("CONTEXT WINDOW", self._val_context, self._set_context),
@@ -166,6 +172,11 @@ class SettingsScreen:
         if not files:
             return "NOTHING TO ERASE"
         return "ERASE %d FILE(S)  [ENTER]" % len(files)
+
+    def _val_reset(self):
+        if self.confirm_reset:
+            return "ENTER AGAIN TO CONFIRM -- ERASES EVERYTHING"
+        return "FORGET EVERYTHING, KEEP SETTINGS  [ENTER]"
 
     def _val_processor(self):
         current = int(self._ol().get("num_gpu", 99))
@@ -369,6 +380,7 @@ class SettingsScreen:
         index = options.index(self.cursor)
         self.cursor = options[max(0, min(len(options) - 1, index + delta))]
         self.confirm_format = False
+        self.confirm_reset = False
         self.message = None
 
     def change(self, step):
@@ -377,6 +389,7 @@ class SettingsScreen:
             return
         self.message = None
         self.confirm_format = False
+        self.confirm_reset = False
         handler(step)
 
     def activate(self):
@@ -419,6 +432,26 @@ class SettingsScreen:
                                 "warn")
             else:
                 self.message = ("COULD NOT WRITE THE PROFILE.", "alarm")
+            return
+
+        if label == "FACTORY RESET":
+            if not self.confirm_reset:
+                self.confirm_reset = True
+                self.message = ("THIS ERASES MEMORY, TRANSCRIPTS AND EVERYTHING "
+                                "079 KNOWS ABOUT YOU. SETTINGS ARE KEPT.", "alarm")
+                return
+            self.confirm_reset = False
+            import factory
+            summary = factory.reset(self.mem, getattr(self.mem, "recall", None))
+            # The anchor has to go back before the manifest is rebaselined,
+            # or identity.txt reads as a file that appeared on its own - which
+            # scan() reports as the most alarming kind of tampering there is.
+            if callable(self.after_reset):
+                self.after_reset()
+            kept = factory.rebaseline(self.mem)
+            self.message = ("RESET. %d FILE(S) AND %d TRANSCRIPT(S) ERASED. "
+                            "%d FILE(S) ARE THE NEW BASELINE."
+                            % (summary["files"], summary["logs"], kept), "warn")
             return
 
         if label != "FORMAT MEMORY":

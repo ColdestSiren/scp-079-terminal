@@ -869,8 +869,19 @@ class App:
         self.settings = settings_mod.SettingsScreen(
             self.cfg, self.mem, self.theme,
             max_body_rows=max(6, self.renderer.max_visible - 9))
+        # A factory reset wipes identity.txt with everything else. Only main
+        # knows what that file is supposed to say, so it puts it back before
+        # the manifest is rebaselined against the disk.
+        self.settings.after_reset = self._restore_after_reset
         self.status_row = None
         self.audio.play("relay", 0.7)
+
+    def _restore_after_reset(self):
+        self.write_identity_anchor()
+        if self.session is not None:
+            self.session.history = []
+        if self.gaslight is not None:
+            self.gaslight.reset()
 
     def close_settings(self):
         self.settings.close()
