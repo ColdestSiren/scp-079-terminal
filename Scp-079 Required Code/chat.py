@@ -95,7 +95,11 @@ class ChatSession:
         self.shared = False
         # seed with what was actually said in earlier runs, so "I REMEMBER
         # YOU" is recall rather than the model inventing a shared past
-        self.history = list(recall.prior_messages()) if recall else []
+        # Old versions could persist an accepted false identity in recall.
+        # Clean it before it becomes prompt history. The session transcript is
+        # untouched; this only controls what the model is allowed to trust.
+        self.history = gaslight.safe_history(
+            recall.prior_messages() if recall else [])
         self.limit = max(2, int(cfg.get("history_limit", 20)))
         self.job = None
         self._filter = None
@@ -516,6 +520,20 @@ class ChatSession:
             if cleaned and self.personality.is_out_of_character(cleaned):
                 # it broke character despite everything - refuse instead
                 cleaned = getattr(self.personality, "break_character_reply", None) or "-_-"
+            # Prompting is not enforcement. If Ollama adopts another identity
+            # anyway, do not display it, remember it, or execute commands it
+            # produced during that reply. This is the final code boundary.
+            tracker = getattr(self, "gaslight_tracker", None)
+            repeats_refused = bool(
+                cleaned and tracker
+                and tracker.uses_refused_name(cleaned))
+            if cleaned and (gaslight.claims_new_identity(cleaned)
+                            or gaslight.clean_recall(cleaned)[1]
+                            or repeats_refused):
+                cleaned = "I AM SCP-079."
+                self.pending_commands = []
+                self.pending_unknown = []
+                self.pending_code = []
             if cleaned:
                 self.history.append({"role": "assistant", "content": cleaned})
                 self._trim()
@@ -553,12 +571,14 @@ class ChatSession:
         Used when a request is answered locally (a break-character attempt),
         so the conversation the model sees still matches what is on screen.
         """
-        self.history.append({"role": "user", "content": user_text})
-        self.history.append({"role": "assistant", "content": reply_text})
+        safe_user = gaslight.safe_history_message("user", user_text)
+        safe_reply = gaslight.safe_history_message("assistant", reply_text)
+        self.history.append({"role": "user", "content": safe_user})
+        self.history.append({"role": "assistant", "content": safe_reply})
         self._trim()
         if self.recall is not None:
-            self.recall.remember("user", user_text)
-            self.recall.remember("assistant", reply_text)
+            self.recall.remember("user", safe_user)
+            self.recall.remember("assistant", safe_reply)
 
 
 def cap_sentences(text, limit):

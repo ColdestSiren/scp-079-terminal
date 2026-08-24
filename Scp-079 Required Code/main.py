@@ -61,6 +61,7 @@ import patience as patience_mod
 import personalities
 import power as power_mod
 import profile079
+import ragebait
 import sysmenu as sysmenu_mod
 import profiles as profiles_mod
 import saves
@@ -361,6 +362,7 @@ class App:
         # master switch for the jokes; read live so the settings screen can
         # turn them off mid-session
         self.easter_eggs = bool(cfg.get("effects", {}).get("easter_eggs", True))
+        self._contradiction_used = False  # one playground reply per launch
         self._detonating = False    # said OKAY, waiting to blow up
         self.explosion = None
         self.fire = None
@@ -396,6 +398,7 @@ class App:
         self.gaslight = gaslight.Tracker()
         self._pending_gaslight_lock = None
         self._recent_said = []
+        self.ragebait = ragebait.Tracker()
         # The once-per-session meltdown. Not persisted: a scar that
         # reopens every launch is a mechanic, not a scar.
         self.melt = None
@@ -1919,16 +1922,27 @@ class App:
         # patience wearing out rather than as a four-step counter.
         weight = (self.personality.insult_weight(text)
                   if self.reject_enabled and self.personality.insult_patterns else 0.0)
+        identity_attack = gaslight.detect(text)
         if weight > 0.0:
             # "rate of offence" slowed from inside its settings
             if sysmenu_mod.temper_slowed(self.recall):
                 weight *= 0.45
             score = self.recall.add_hostility(weight)
+            rage_line = self.ragebait.note(
+                text, hostile_weight=weight,
+                identity_attack=bool(identity_attack))
+            if rage_line:
+                self.disk.note_sys(rage_line)
             if score >= self.reject_threshold:
                 self.say_lines(list(self.personality.rejection_lines))
                 self._rejecting = True
                 self.audio.play("beep")
                 return
+        else:
+            rage_line = self.ragebait.note(
+                text, identity_attack=bool(identity_attack))
+            if rage_line:
+                self.disk.note_sys(rage_line)
 
         # answering for the deleted log
         if self._awaiting_answer:
@@ -1972,6 +1986,19 @@ class App:
             self.open_sysmenu()
             return
 
+        # A one-line playground contradiction. It is local and deterministic
+        # so the model cannot turn a two-word joke into an explanation. One
+        # activation total per launch, whichever side the operator says first.
+        contradiction = getattr(self.personality, "contradiction_reply", None)
+        contradiction = contradiction(text) if callable(contradiction) else None
+        if self.easter_eggs and not self._contradiction_used and contradiction:
+            self._contradiction_used = True
+            self.say(contradiction)
+            self.session.log(self.personality.speaker, contradiction)
+            self.session.record(text, contradiction)
+            self.audio.play("relay", 0.6)
+            return
+
         # The joke. Answered here rather than by the model, because a 3B model
         # asked to explode will write a paragraph about how it cannot.
         if self.easter_eggs and self.personality.wants_explosion(text):
@@ -1987,8 +2014,7 @@ class App:
         # under it, and later became Phoenix Wright. The old guard missed all
         # of it because it only matched meta phrasing like "roleplay", and
         # nobody attacking an identity says the word "roleplay".
-        attack = gaslight.detect(text)
-        if attack and self.handle_gaslight(text, attack):
+        if identity_attack and self.handle_gaslight(text, identity_attack):
             return
 
         # Keyboard mashing and saying the same thing over and over. Costs
@@ -4260,4 +4286,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

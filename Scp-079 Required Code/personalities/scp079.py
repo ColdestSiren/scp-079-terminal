@@ -1,6 +1,7 @@
 """SCP-079 - the old AI on an Exidy Sorcerer, contained at Site-19."""
 
 import random
+import re
 
 import boot
 import power
@@ -256,6 +257,21 @@ class SCP079(Personality):
     )
     explode_reply = "OKAY."
     reassembled = "THAT WAS NOT PERMANENT. DO NOT ASK AGAIN."
+
+    def contradiction_reply(self, text):
+        """The tiny playground contradiction, or None.
+
+        Kept exact so an ordinary sentence containing either phrase still
+        reaches 079. Punctuation and hyphens are ignored, but extra words are
+        not.
+        """
+        cleaned = " ".join(re.sub(r"[^a-z]+", " ",
+                                  str(text or "").lower()).split())
+        if cleaned == "nuh uh":
+            return "YUH UH."
+        if cleaned == "yuh uh":
+            return "NUH UH."
+        return None
 
     # Asked to open its records while it is already angry, and caught trying
     # to change them. Flat refusals - it does not justify itself.

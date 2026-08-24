@@ -1,10 +1,28 @@
 """Settings profiles: saving, loading, and the rules loading must not break."""
 import os
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
+
+# Profiles used to run against the live memory and logs. That made this test
+# fail whenever the game correctly held its memory files locked, and it also
+# gave a test permission to modify real player data. Keep every path private
+# to this process before importing modules that capture those paths.
+SANDBOX = tempfile.mkdtemp(prefix="079profiles_")
+config.MEMORY_ROOT = os.path.join(SANDBOX, "memory")
+config.PUBLIC_MEMORY_DIR = os.path.join(config.MEMORY_ROOT, "core", "0x4F")
+config.MEMORY_DIR = config.PUBLIC_MEMORY_DIR
+config.LOG_DIR = os.path.join(SANDBOX, "logs")
+config.STATE_PATH = os.path.join(config.LOG_DIR, "terminal_state.json")
+config.CONFIG_PATH = os.path.join(SANDBOX, "config.json")
+config.SHARED_DIR = os.path.join(SANDBOX, "shared folder")
+os.makedirs(config.MEMORY_DIR, exist_ok=True)
+os.makedirs(config.LOG_DIR, exist_ok=True)
+
 import profiles
 import settings as settings_mod
 import store
@@ -112,6 +130,7 @@ check("describe is readable", "KEEP" in profiles.describe(profiles.BUILT_IN["LAR
 profiles.delete("TESTPROF")
 clean_memory(mem)
 mem.set_quota(65536)
+shutil.rmtree(SANDBOX, ignore_errors=True)
 
 print("\nPASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

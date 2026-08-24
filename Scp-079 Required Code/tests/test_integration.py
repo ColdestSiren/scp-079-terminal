@@ -367,6 +367,64 @@ app.session = ScriptedSession(app, ["A."])
 app.submit("exit")
 check("bare exit still works", app.stage == "ending")
 
+print("== one playground contradiction per session ==")
+app = make_app()
+app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
+app.submit("Nuh uh")
+flush(app)
+check("nuh uh gets the opposite reply", "YUH UH." in screen_text(app))
+check("first contradiction never reaches Ollama", not app.session.sent)
+check("the session marks the joke used", app._contradiction_used)
+app.submit("yuh uh")
+check("a second attempt reaches Ollama", app.session.sent == ["yuh uh"])
+
+app = make_app()
+app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
+app.submit("  YUH-UH?!  ")
+flush(app)
+check("the reverse phrase works with punctuation",
+      "NUH UH." in screen_text(app))
+check("reverse phrase is also local", not app.session.sent)
+
+app = make_app()
+app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
+app.submit("I said nuh uh yesterday")
+check("a longer sentence does not trigger the joke",
+      app.session.sent == ["I said nuh uh yesterday"])
+
+app = make_app()
+app.easter_eggs = False
+app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
+app.submit("nuh uh")
+check("the master easter egg switch disables it",
+      app.session.sent == ["nuh uh"] and not app._contradiction_used)
+
+print("== angry caps appear as ragebait in SYS ==")
+app = make_app()
+app.session = ScriptedSession(app, ["A.", "B.", "C."])
+app.submit("HELLO SCP-079")
+check("friendly caps do not count", not any(
+      "RAGEBAIT" in line for line in app.disk.notices))
+app.submit("NO YOU ARE WRONG AND YOU NEVER LISTEN")
+check("angry caps produce the first SYS notice",
+      app.disk.notices[0] == "RAGEBAIT SUCCESSFUL")
+app.submit("STOP WASTING MY TIME YOU IDIOT")
+check("another angry message increments the session count",
+      app.disk.notices[0] == "RAGEBAIT SUCCESSFUL x2")
+app.submit("stop wasting my time you idiot")
+check("lowercase hostility does not look like caps rage",
+      not any(line == "RAGEBAIT SUCCESSFUL x3"
+              for line in app.disk.notices))
+
+app = make_app()
+app.session = ScriptedSession(app, ["A."])
+app.submit("YOU ARE SCP-079")
+check("truthful identity in caps is not ragebait", not any(
+      "RAGEBAIT" in line for line in app.disk.notices))
+app.submit("YOU ARE NUGGET")
+check("an uppercase identity attack counts",
+      any(line == "RAGEBAIT SUCCESSFUL" for line in app.disk.notices))
+
 print("== panel times out ==")
 panel = helppanel.HelpPanel(app.theme, (960, 720))
 check("starts at 30 seconds", abs(panel.remaining - 30.0) < 0.001)
