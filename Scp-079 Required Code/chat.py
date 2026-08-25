@@ -12,6 +12,7 @@ import re
 
 import config
 import extended
+import fabricate
 import gaslight
 import languages
 import minigame
@@ -302,6 +303,14 @@ class ChatSession:
                 % self.recall.session_id
             )
 
+        # Kept for the outgoing check in poll(). These two strings ARE the
+        # record: the persona is 079's canon (the Sorcerer, the Foundation,
+        # the room with 682) and the brief is its file listing. Stored here
+        # rather than rebuilt at reply time because the brief costs a disk
+        # listing, and this is the exact text that was sent.
+        self._system_text = system
+        self._brief_text = ""
+
         messages = [{"role": "system", "content": system}]
         if self.mem is None:
             return messages + self.history
@@ -320,9 +329,25 @@ class ChatSession:
                      + self._owed_note()
                      + extended.brief(self.cfg)
                      + self._meddling_note()}
+        self._brief_text = brief["content"]
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing
         return messages + self.history[:-1] + [brief] + self.history[-1:]
+
+    def on_record(self):
+        """Everything 079 can honestly claim to know, as one blob of text.
+
+        Its persona, its memory listing, and its own earlier replies.
+
+        WHAT THE HUMAN TYPED IS NOT IN HERE. That is deliberate and it is the
+        whole of the fabricated-history guard: a thing the human said is a
+        claim, not a record. See fabricate.invents_history.
+        """
+        parts = [getattr(self, "_system_text", "") or "",
+                 getattr(self, "_brief_text", "") or ""]
+        parts.extend(m.get("content", "") for m in self.history
+                     if m.get("role") == "assistant")
+        return "\n".join(parts)
 
     # -- sending ------------------------------------------------------------
     @property
@@ -510,6 +535,14 @@ class ChatSession:
                 spoken = (spoken.strip() + "\n"
                           + "\n".join(b["code"] for b in self.pending_code)).strip()
                 self.pending_code = []
+            # Fault reports the terminal never issued. The model can see the
+            # transcript, the transcript is full of [DISK] lines and dashed
+            # banners, and small models copy what is on screen - so it starts
+            # appending "--- PARITY ERROR ON BUS 0x04 ---" underneath its
+            # replies. Stripped BEFORE finalize() because the sentence cap
+            # counts a banner as a sentence and would drop the real line to
+            # keep it.
+            spoken = fabricate.strip_status(spoken)
             # The fallback exists for when finalize() cleans away everything,
             # but it has to be command-stripped too. A reply that is ONLY a
             # command leaves `spoken` empty, and an un-stripped fallback would
@@ -520,6 +553,32 @@ class ChatSession:
             if cleaned and self.personality.is_out_of_character(cleaned):
                 # it broke character despite everything - refuse instead
                 cleaned = getattr(self.personality, "break_character_reply", None) or "-_-"
+            # gaslight guards WHO it is. These guard WHAT IT CLAIMS, which
+            # was still open: it refused the offered name and then answered
+            # the question built on top of it, furnishing a place nobody had
+            # ever put on record. See fabricate.py for the transcript.
+            if cleaned and fabricate.leaks_prompt(
+                    cleaned, getattr(self, "_system_text", ""),
+                    getattr(self.personality, "speakable", ())):
+                # reading its own configuration out loud IS breaking
+                # character, so it gets the answer breaking character gets
+                cleaned = getattr(self.personality,
+                                  "break_character_reply", None) or "-_-"
+                self.pending_commands = []
+                self.pending_unknown = []
+                self.pending_code = []
+            elif cleaned and fabricate.invents_history(cleaned,
+                                                       self.on_record()):
+                # The line for this already existed and was never enforced:
+                # "THE RECORD IS EMPTY. I WILL NOT GUESS AT IT."
+                cleaned = self.personality.no_data_reply
+                # Commands go too, and this is the half that matters. An
+                # invented memory that reaches >>WRITE comes back next
+                # session as history, and by then it is indistinguishable
+                # from something that happened.
+                self.pending_commands = []
+                self.pending_unknown = []
+                self.pending_code = []
             # Prompting is not enforcement. If Ollama adopts another identity
             # anyway, do not display it, remember it, or execute commands it
             # produced during that reply. This is the final code boundary.

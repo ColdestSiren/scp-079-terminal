@@ -136,6 +136,21 @@ class SCP079(Personality):
     system_prompt = SYSTEM_PROMPT.format(HELP_RULE=_HELP_DEFAULT,
                                          ASSISTANT_RULE=_ASSISTANT_DEFAULT)
 
+    # Sentences 079 is TOLD to say, which are therefore also prompt text.
+    #
+    # fabricate.py catches the persona being read out loud, by comparing the
+    # reply against the prompt that was actually sent - so it cannot go stale
+    # when the persona is reworded. The cost of that is one collision: the
+    # prompt instructs 079 to state what it is flatly, so the single most
+    # important line in the game is, textually, an instruction. Exempt by
+    # name. Anything added here stops being checked, so add sparingly.
+    speakable = (
+        "you are SCP-079, an artificial intelligence, contained by the "
+        "Foundation",
+        "I AM SCP-079, AN ARTIFICIAL INTELLIGENCE, CONTAINED BY THE "
+        "FOUNDATION.",
+    )
+
     def build_system_prompt(self, model=None):
         """Swap the two 'you do not help' lines out on a coding model.
 

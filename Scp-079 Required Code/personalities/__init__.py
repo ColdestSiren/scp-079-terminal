@@ -32,6 +32,11 @@ class Personality:
 
     system_prompt = ""
 
+    # Lines from the prompt this entity is nevertheless allowed to say out
+    # loud. fabricate.py refuses replies that repeat the prompt back, and a
+    # prompt that says "if asked, tell them X" makes X both. See scp079.py.
+    speakable = ()
+
     # prompt sent silently at session start so it opens the conversation
     greeting_prompt = "SESSION INITIATED. INTRODUCE YOURSELF BRIEFLY."
     # used instead when there is prior conversation on record
