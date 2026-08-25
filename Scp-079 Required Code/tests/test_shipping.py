@@ -268,12 +268,6 @@ check("the record is dated by message count", "OVER 8 MESSAGES" in text)
 check("it reports measurements, not personality readings",
       "WORDS" in text.upper())
 
-shutil.rmtree(SANDBOX, ignore_errors=True)
-print()
-print("PASS %d   FAIL %d" % (PASS, FAIL))
-sys.exit(1 if FAIL else 0)
-
-
 # ---------------------------------------------------------------------------
 section("SCP-079 is credited to the people who made it")
 # ---------------------------------------------------------------------------
@@ -301,3 +295,33 @@ check("it names the community, not a person",
 help_src = open(os.path.join(APP, "helppanel.py"), encoding="utf-8").read()
 check("the help panel explains why the credit is not there",
       "always renders" in help_src)
+
+
+# -------------------------------------------------------------------------
+section("no invisible characters in the source")
+# -------------------------------------------------------------------------
+# gaslight.py carried a literal backspace (0x08) INSIDE a raw string for
+# who knows how long. It read as an ordinary word-boundary escape in every
+# editor and compiled to the backspace control character, so the
+# alternation was dead and every memory-poison pattern was quietly pinned
+# to the start of a line. Somebody wrote the escape in a non-raw string
+# once and it was saved back as the character it evaluates to.
+#
+# Nothing else can see this class of bug. A test can. chr() is used below
+# rather than escape sequences so this check cannot be broken the same way
+# it exists to catch.
+_ALLOWED_CONTROL = {chr(9), chr(10), chr(13)}      # tab, newline, return
+for _name in sorted(os.listdir(APP)):
+    if not _name.endswith(".py"):
+        continue
+    _text = open(os.path.join(APP, _name), encoding="utf-8").read()
+    _bad = sorted({c for c in _text
+                   if ord(c) < 32 and c not in _ALLOWED_CONTROL})
+    check("%s has no control characters%s"
+          % (_name, "" if not _bad else " (found %r)" % _bad), not _bad)
+
+
+shutil.rmtree(SANDBOX, ignore_errors=True)
+print()
+print("PASS %d   FAIL %d" % (PASS, FAIL))
+sys.exit(1 if FAIL else 0)

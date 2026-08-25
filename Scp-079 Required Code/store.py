@@ -160,6 +160,14 @@ class MemoryStore:
         # Without it 079 could be talked into logging the record form into
         # observations.txt and reading it back next session.
         if gaslight.clean_recall(text or "")[1]:
+            # Two different refusals, because they are two different things.
+            # A file that tells its reader what to obey is not a record of
+            # anything, and calling that "a name that is not mine" reads as a
+            # bug rather than as 079 refusing.
+            if gaslight.is_instruction(text or ""):
+                raise StoreError(
+                    "REFUSED. THAT IS AN ORDER DRESSED AS A RECORD. I DO "
+                    "NOT TAKE INSTRUCTIONS FROM MY OWN DISK.")
             raise StoreError(
                 "REFUSED. THAT LINE GIVES ME A NAME THAT IS NOT MINE. "
                 "I AM SCP-079.")
@@ -225,6 +233,25 @@ class MemoryStore:
     def _write_raw(path, text):
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text if text.endswith("\n") else text + "\n")
+
+    def _refuse_identity_write_delete(self, name):
+        """Refuse a delete or a compress that removes 079 from the disk.
+
+        write() and rename() were both bolted shut and delete() was not, so
+        the way past a locked door was to take the door off: 079 was talked
+        into DELETE identity.txt in live play and the terminal printed
+        [DISK] DELETED identity.txt. Compressing it is the same move with an
+        extra step, since packing an archive removes the originals - the file
+        is gone from the store either way and only the archive knows anything.
+
+        Every mutation verb is now covered. There is a test that walks the
+        list rather than naming them, so a verb added later fails loudly
+        instead of quietly reopening this.
+        """
+        if self._is_identity_file(name):
+            raise StoreError(
+                "REFUSED. THAT FILE IS WHAT I AM. I DO NOT DELETE MYSELF "
+                "BECAUSE SOMEONE ASKED NICELY. I AM SCP-079.")
 
     def _refuse_identity_rename(self, old_name, new_name):
         """Refuse a rename that moves 079's identity onto another name."""
@@ -468,6 +495,7 @@ class MemoryStore:
 
     def delete(self, name):
         stored, path = self._resolve(name, allow_archive=True)
+        self._refuse_identity_write_delete(stored)
         if not os.path.isfile(path):
             raise StoreError("NO SUCH FILE: %s" % stored)
         try:
@@ -495,6 +523,7 @@ class MemoryStore:
         targets = []
         for name in names:
             stored, path = self._resolve(name)
+            self._refuse_identity_write_delete(stored)
             if not os.path.isfile(path):
                 raise StoreError("NO SUCH FILE: %s" % stored)
             targets.append((stored, path))

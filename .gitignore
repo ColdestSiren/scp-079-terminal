@@ -56,6 +56,12 @@ Screenshot */
 # the reasoning. Genuinely useful to keep - just not published.
 Suggestions.txt
 
+# Session handoffs. Same reasoning as Suggestions.txt, and they name the
+# one-time jokes and their exact triggers outright, which is the whole of
+# what makes them work.
+CLAUDE_HANDOFF_*.md
+CODEX_HANDOFF_*.md
+
 # Reference material from OTHER projects, kept here to look at while working.
 # Not part of the terminal, and it would ship inside every release zip.
 Use as examples/
