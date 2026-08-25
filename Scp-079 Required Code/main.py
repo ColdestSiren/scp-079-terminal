@@ -73,6 +73,7 @@ import slotscreen as slotscreen_mod
 import store as store_mod
 import terminal as term
 import themes
+import thinkbox
 import tuning as tuning_mod
 import tools
 import updater as updater_mod
@@ -332,6 +333,20 @@ class App:
         # partial reasoning line, assembled from tokens when "/show ai
         # thinking" is on
         self._think_buf = ""
+        # Reasoning traces, each in its own collapsible frame. _think_current
+        # is the one still being written to; think_open_default remembers
+        # which way you last left the arrow, so a shut box stays shut for the
+        # rest of the session instead of springing open on the next reply.
+        self.think_boxes = []
+        self._think_current = None
+        self.think_open_default = True
+        # Boxes are numbered from a counter that only ever goes up, NOT from
+        # the length of the list. Once the cap starts dropping old boxes the
+        # length stops growing, so a new box would be handed a number whose
+        # markers are still sitting in the transcript - and a frame drawn
+        # between the old top and the new bottom swallows the conversation
+        # in between.
+        self._think_seq = 0
         # a follow-up carrying read/lookup results is in flight, and the guess
         # that came with the request was withheld
         self._awaiting_data = False
@@ -1847,6 +1862,7 @@ class App:
             background_mod.MaintenanceChannel(self.cfg, self.model)
         self.recall.start_session(getattr(self.session, "_log_path", None))
         self.write_self_record()
+        self.note_reasoning_model()
 
         # Resuming skips the greeting entirely. Being greeted from scratch is
         # what makes a "continue" feel like it did not work - the whole point
@@ -1866,6 +1882,38 @@ class App:
         self.session.send(prompt, remember=False)
         self.thinking.start("greet")
         self.idle.note_activity()
+
+    def note_reasoning_model(self):
+        """Warn, once at the top of the session, that this model deliberates.
+
+        On qwen3 and its relatives the first reply can be minutes away, all of
+        it spent inside a <think> block nobody asked to see. Silence that long
+        is indistinguishable from a hang, and someone who thinks the game has
+        frozen kills it before it ever answers. Saying so up front costs two
+        lines and turns a suspected crash into an expected wait.
+
+        Said whether or not the trace is shown, because the wait happens
+        either way - reasoning is what the model does, not what this setting
+        turns on.
+        """
+        if not tuning_mod.is_reasoning_model(self.model):
+            return
+        c = self.theme
+        self.console.blank()
+        self.console.write(
+            "  [SYS] THIS MODEL THINKS BEFORE IT ANSWERS. A REPLY CAN TAKE",
+            c["system"])
+        self.console.write(
+            "  [SYS] A WHILE. A LONG PAUSE IS IT WORKING, NOT A CRASH.",
+            c["system"])
+        if getattr(self.session, "show_thinking", False):
+            self.console.write(
+                "  [SYS] ITS REASONING SHOWS IN A BOX -- THE ARROW HIDES IT.",
+                c["dim"])
+        else:
+            self.console.write(
+                "  [SYS] TO WATCH IT THINK: /show ai thinking", c["dim"])
+        self.console.blank()
 
     def after_greeting(self):
         """Once 079 has said hello, decide whether it has a bone to pick.
@@ -2882,13 +2930,17 @@ class App:
 
     COPY_LABEL = "[ COPY ]"
 
-    def code_frames(self):
-        """{index: (rect, header_rect)} for blocks currently on screen.
+    def marker_frames(self, markers):
+        """{key: (rect, header_rect)} for framed blocks currently on screen.
 
         Rebuilt every frame from the renderer's row map, because transcript
         rows move as the conversation scrolls. A block whose top marker has
         scrolled off is clipped to the visible area rather than dropped, so a
         long one still shows a frame while you are inside it.
+
+        Shared by code blocks and reasoning traces. They draw differently but
+        they are the same rectangle problem, and two copies of this arithmetic
+        would only stay in step until one of them was fixed.
         """
         positions = getattr(self.renderer, "row_positions", {}) or {}
         line_h = self.renderer.line_height
@@ -2898,9 +2950,9 @@ class App:
         right = self.size[0] - self.renderer.reserved_right - self.renderer.MARGIN_RIGHT
 
         out = {}
-        for index in range(1, len(self.code_blocks) + 1):
-            start = positions.get(self.code_header_text(index))
-            end = positions.get(self.code_end_text(index))
+        for key, top_text, end_text in markers:
+            start = positions.get(top_text)
+            end = positions.get(end_text)
             if start is None and end is None:
                 continue                    # nowhere near the screen
             if start is None:
@@ -2910,48 +2962,77 @@ class App:
             box = pygame.Rect(left, int(start), right - left,
                               int(end - start) + line_h)
             header = pygame.Rect(box.x, box.y, box.width, line_h + 2)
-            out[index] = (box, header)
+            out[key] = (box, header)
         return out
 
-    def draw_code_frames(self, surface):
+    def code_frames(self):
+        return self.marker_frames(
+            (index, self.code_header_text(index), self.code_end_text(index))
+            for index in range(1, len(self.code_blocks) + 1))
+
+    def think_frames(self):
+        return self.marker_frames(
+            (box.index, thinkbox.top_marker(box.index),
+             thinkbox.end_marker(box.index))
+            for box in self.think_boxes)
+
+    def draw_frame(self, surface, box, header, label):
+        """A lifted panel, its outline, and the title band across its top.
+
+        Returns the band rect so the caller can put a button in it, or None
+        when the frame is off screen or too clipped to be worth drawing.
+        """
         c = self.theme
+        # Rect takes a HEIGHT, not a bottom edge. content_bottom is a Y
+        # coordinate, so passing it directly made the clip region extend
+        # far past the screen and stop clipping anything at the bottom.
+        top = self.renderer.MARGIN_TOP - 2
+        clipped = box.clip(pygame.Rect(0, top, self.size[0],
+                                       max(0, self.renderer.content_bottom - top)))
+        if clipped.height <= 4:
+            return None
+        panel = pygame.Surface((clipped.width, clipped.height))
+        panel.fill(c["bg"])
+        panel.set_alpha(90)
+        surface.blit(panel, clipped.topleft)
+        pygame.draw.rect(surface, c["dim"], clipped, 1)
+
+        # The band must be drawn where the HEADER actually is, and only
+        # when the header is genuinely on screen. Testing the clipped
+        # rect instead pinned the label to the top of the content area
+        # whenever the real header had scrolled off above it, printing
+        # "PYTHON 3.12" straight over whatever line was there.
+        if not (header.top >= top
+                and header.bottom <= self.renderer.content_bottom):
+            return None
+        band = header.clip(clipped)
+        if band.height <= 2:
+            return None
+        strip = pygame.Surface((band.width, band.height))
+        strip.fill(c["dim"])
+        strip.set_alpha(45)
+        surface.blit(strip, band.topleft)
+        pygame.draw.line(surface, c["dim"],
+                         (band.left, band.bottom),
+                         (band.right - 1, band.bottom))
+        surface.blit(self.font.render(label, True, c["system"]),
+                     (band.x + 8, band.y + 1))
+        return band
+
+    def draw_code_frames(self, surface):
         for index, (box, header) in self.code_frames().items():
             block = self.code_blocks[index - 1]
-            # Rect takes a HEIGHT, not a bottom edge. content_bottom is a Y
-            # coordinate, so passing it directly made the clip region extend
-            # far past the screen and stop clipping anything at the bottom.
-            top = self.renderer.MARGIN_TOP - 2
-            clipped = box.clip(pygame.Rect(0, top, self.size[0],
-                                           max(0, self.renderer.content_bottom - top)))
-            if clipped.height <= 4:
-                continue
-            # a slightly lifted panel, then its outline
-            panel = pygame.Surface((clipped.width, clipped.height))
-            panel.fill(c["bg"])
-            panel.set_alpha(90)
-            surface.blit(panel, clipped.topleft)
-            pygame.draw.rect(surface, c["dim"], clipped, 1)
+            label = (block.get("lang") or "").upper() or languages.badge(
+                self.cfg.get("memory", {}).get("code_language",
+                                               languages.DEFAULT))
+            self.draw_frame(surface, box, header, label)
 
-            # The band must be drawn where the HEADER actually is, and only
-            # when the header is genuinely on screen. Testing the clipped
-            # rect instead pinned the label to the top of the content area
-            # whenever the real header had scrolled off above it, printing
-            # "PYTHON 3.12" straight over whatever line was there.
-            if header.top >= top and header.bottom <= self.renderer.content_bottom:
-                band = header.clip(clipped)
-                if band.height > 2:
-                    strip = pygame.Surface((band.width, band.height))
-                    strip.fill(c["dim"])
-                    strip.set_alpha(45)
-                    surface.blit(strip, band.topleft)
-                    pygame.draw.line(surface, c["dim"],
-                                     (band.left, band.bottom),
-                                     (band.right - 1, band.bottom))
-                    label = (block.get("lang") or "").upper() or languages.badge(
-                        self.cfg.get("memory", {}).get("code_language",
-                                                       languages.DEFAULT))
-                    surface.blit(self.font.render(label, True, c["system"]),
-                                 (band.x + 8, band.y + 1))
+    def draw_think_frames(self, surface):
+        frames = self.think_frames()
+        for box in self.think_boxes:
+            rect = frames.get(box.index)
+            if rect:
+                self.draw_frame(surface, rect[0], rect[1], thinkbox.LABEL)
 
     def code_button_rects(self):
         """{block index: rect} for whichever headers are on screen right now.
@@ -2977,6 +3058,43 @@ class App:
 
     def hit_code_button(self, pos):
         for index, rect in self.code_button_rects().items():
+            if rect.inflate(8, 6).collidepoint(pos):
+                return index
+        return None
+
+    def think_button_rects(self):
+        """{box index: rect} for the arrow on every reasoning frame on screen.
+
+        Same rebuilt-every-frame reasoning as the copy buttons: the header
+        moves as the transcript scrolls, so a rect worked out once would end
+        up sitting over whatever row had taken its place.
+        """
+        rects = {}
+        frames = self.think_frames()
+        for box in self.think_boxes:
+            frame = frames.get(box.index)
+            if not frame:
+                continue
+            header = frame[1]
+            if header.bottom <= self.renderer.MARGIN_TOP:
+                continue        # title band scrolled off the top
+            width = self.font.size(box.arrow())[0]
+            rects[box.index] = pygame.Rect(header.right - width - 8,
+                                           header.y + 1, width,
+                                           self.font.get_height())
+        return rects
+
+    def draw_think_buttons(self, surface):
+        rects = self.think_button_rects()
+        for box in self.think_boxes:
+            rect = rects.get(box.index)
+            if rect:
+                surface.blit(self.font.render(box.arrow(), True,
+                                              self.theme["bright"]),
+                             (rect.x, rect.y))
+
+    def hit_think_button(self, pos):
+        for index, rect in self.think_button_rects().items():
             if rect.inflate(8, 6).collidepoint(pos):
                 return index
         return None
@@ -4127,9 +4245,13 @@ class App:
         else:
             content = self.renderer.render(self.rows(), dt)
         # after the transcript, so the row map is from the frame just drawn
-        if self.stage in ("greet", "chat") and self.code_blocks:
-            self.draw_code_frames(content)
-            self.draw_code_buttons(content)
+        if self.stage in ("greet", "chat"):
+            if self.code_blocks:
+                self.draw_code_frames(content)
+                self.draw_code_buttons(content)
+            if self.think_boxes:
+                self.draw_think_frames(content)
+                self.draw_think_buttons(content)
         if show_disk:
             self.disk.update(dt)
             self.disk.draw(content, self.mem, self.hostility_level(),
@@ -4182,6 +4304,80 @@ class App:
         return content
 
     THINK_WRAP = 68
+    MAX_THINK_BOXES = 8
+
+    def _think_box(self):
+        """The box the current reasoning is going into, opening one if the
+        model has just started to think."""
+        if self._think_current is not None:
+            return self._think_current
+        self._think_seq += 1
+        box = thinkbox.ThinkBox(self._think_seq,
+                                open_now=self.think_open_default)
+        self.think_boxes.append(box)
+        del self.think_boxes[:-self.MAX_THINK_BOXES]
+        self._think_current = box
+        self.console.blank()
+        self.console.write(thinkbox.top_marker(box.index), self.theme["bg"])
+        return box
+
+    def _think_line(self, line):
+        """One finished line of reasoning, printed only if the box is open.
+
+        A shut box still RECEIVES the line - closing the arrow hides the
+        trace, it does not stop the model producing one - so its summary row
+        has to be rewritten each time to keep the count honest.
+        """
+        box = self._think_box()
+        if not box.add(line):
+            return
+        if box.open:
+            self.console.write(thinkbox.GUTTER + line.strip(), self.theme["dim"])
+        else:
+            self._rewrite_think_box(box)
+
+    def _rewrite_think_box(self, box):
+        """Put whichever rows the box's current state calls for back between
+        its markers."""
+        thinkbox.splice(self.console.rows,
+                        thinkbox.top_marker(box.index),
+                        thinkbox.end_marker(box.index),
+                        box.body(self.theme["dim"], self.theme["system"]))
+
+    def _close_think_box(self):
+        box = self._think_current
+        self._think_current = None
+        if box is None:
+            return
+        box.done = True
+        if not box.lines:
+            # The model requested reasoning and produced none. An empty
+            # frame is worse than no frame, so take the marker back out
+            # rather than draw a box around nothing.
+            rows = self.console.rows
+            top = thinkbox.top_marker(box.index)
+            self.console.rows = [r for r in rows
+                                 if thinkbox.row_text(r) != top]
+            if box in self.think_boxes:
+                self.think_boxes.remove(box)
+            return
+        self.console.write(thinkbox.end_marker(box.index), self.theme["bg"])
+        self.console.blank()
+
+    def toggle_think_box(self, index):
+        for box in self.think_boxes:
+            if box.index != index:
+                continue
+            box.toggle()
+            # Shutting one box is a statement about reasoning traces in
+            # general, not about this one. Without this every reply reopens
+            # what you just spent a click closing.
+            self.think_open_default = box.open
+            self._rewrite_think_box(box)
+            self.sys_notice("REASONING %s"
+                            % ("SHOWN" if box.open else "HIDDEN"))
+            return box.open
+        return None
 
     def _flush_thinking(self, final=False):
         """Print whole reasoning lines as they become available.
@@ -4193,7 +4389,7 @@ class App:
         while True:
             buf = self._think_buf
             if not buf:
-                return
+                break
             cut = buf.find("\n")
             if cut == -1:
                 if len(buf) < self.THINK_WRAP:
@@ -4203,10 +4399,12 @@ class App:
                     cut = self.THINK_WRAP
             line, self._think_buf = buf[:cut], buf[cut + 1:]
             if line.strip():
-                self.console.write("  | " + line.strip(), self.theme["dim"])
-        if final and self._think_buf.strip():
-            self.console.write("  | " + self._think_buf.strip(), self.theme["dim"])
+                self._think_line(line)
+        if final:
+            if self._think_buf.strip():
+                self._think_line(self._think_buf)
             self._think_buf = ""
+            self._close_think_box()
 
     def hostility_level(self):
         """How close 079 is to cutting the player off, as 0..1.
@@ -4249,6 +4447,11 @@ class App:
                         block = self.hit_code_button(event.pos)
                         if block is not None:
                             self.copy_code(str(block))
+                            continue
+                        arrow = self.hit_think_button(event.pos)
+                        if arrow is not None:
+                            self.toggle_think_box(arrow)
+                            self.audio.play("relay", 0.5)
                             continue
                         hit = self.disk.hit_scroll(event.pos)
                         if hit:

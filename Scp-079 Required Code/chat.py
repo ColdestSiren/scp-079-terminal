@@ -112,8 +112,17 @@ class ChatSession:
         self._buffer = ""
         self.max_sentences = int(getattr(personality, "max_sentences", 0) or 0)
         # toggled live by "/show ai thinking" - when on, reasoning is both
-        # requested from the model and surfaced to the player
-        self.show_thinking = bool(cfg.get("ollama", {}).get("think", False))
+        # requested from the model and surfaced to the player.
+        #
+        # "think" is forced off at every load (see config._SESSION_ONLY), so
+        # the standing preference is the second key, and it is honoured only
+        # for a model with reasoning to show. Asking a llama build to think
+        # buys nothing and still spends the larger token budget on it.
+        _ollama_cfg = cfg.get("ollama", {})
+        self.show_thinking = bool(_ollama_cfg.get("think", False))
+        if (_ollama_cfg.get("think_on_reasoning")
+                and tuning.is_reasoning_model(self.model)):
+            self.show_thinking = True
         # names of the player-supplied sounds 079 may trigger; set by main
         self.sound_names = []
         self._thinking = ""

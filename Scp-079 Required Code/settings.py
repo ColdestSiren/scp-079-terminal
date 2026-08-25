@@ -100,6 +100,7 @@ class SettingsScreen:
             ("KEEP MODEL LOADED", self._val_keep, self._set_keep),
             ("REPLY LENGTH", self._val_predict, self._set_predict),
             ("TEMPERATURE", self._val_temp, self._set_temp),
+            ("SHOW REASONING (QWEN ETC)", self._val_think, self._set_think),
             (None, None, None),
             ("FULL SCREEN", self._val_fullscreen, self._set_fullscreen),
             ("EASTER EGGS", self._val_eggs, self._set_eggs),
@@ -244,6 +245,22 @@ class SettingsScreen:
         values = [v for v, _ in KEEP_ALIVE_CHOICES]
         self._ol()["keep_alive"] = _cycle(
             values, str(self._ol().get("keep_alive", "5m")), step)
+
+    # Reasoning traces. This is the standing preference, NOT the live toggle:
+    # "/show ai thinking" turns it on for one run and is deliberately forgotten
+    # at exit, whereas a row on this screen is a choice you expect to still be
+    # made tomorrow. It applies only to models that reason - a llama build has
+    # no trace to show, so the row simply does nothing there, which is why the
+    # label names the family it is for.
+    def _val_think(self):
+        return "ON" if self._ol().get("think_on_reasoning", False) else "OFF"
+
+    def _set_think(self, step):
+        ol = self._ol()
+        ol["think_on_reasoning"] = not ol.get("think_on_reasoning", False)
+        self.message = (("REASONING MODELS WILL SHOW THEIR WORKING."
+                         if ol["think_on_reasoning"]
+                         else "REASONING STAYS HIDDEN."), "dim")
 
     def _val_eggs(self):
         return "ON" if self.cfg.get("effects", {}).get("easter_eggs", True) else "OFF"

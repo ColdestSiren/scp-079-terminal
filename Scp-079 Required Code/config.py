@@ -204,6 +204,13 @@ DEFAULTS = {
         # came back EMPTY after 54s. 079 is terse by design and gains nothing
         # from deliberation. Turn on live with: /show ai thinking
         "think": False,
+        # ...and this is the standing preference, which is why it PERSISTS
+        # while "think" above does not. It only ever fires on a model that
+        # actually reasons, so leaving it on costs nothing on a llama build:
+        # there is no trace to show and nothing changes. On qwen and its
+        # relatives the reply is slow whatever you do, and watching the
+        # reasoning arrive is the difference between a wait and a hang.
+        "think_on_reasoning": False,
         "start_wait_seconds": 20,
     },
 
@@ -329,8 +336,19 @@ DEFAULTS = {
 
 
 def _deep_merge(base, override):
-    """Return base updated with override, recursing into nested dicts."""
-    out = dict(base)
+    """Return base updated with override, recursing into nested dicts.
+
+    Nested dicts are COPIED, never carried over by reference. dict(base) is a
+    shallow copy, so a config built from DEFAULTS with no "ollama" section of
+    its own got the actual DEFAULTS["ollama"] - and the settings screen, which
+    quite reasonably writes straight into cfg["ollama"], was then editing the
+    defaults themselves. Nothing in a running game reads DEFAULTS twice, so it
+    never showed; it surfaces the moment anything builds two configs and
+    expects them to be independent.
+    """
+    out = {}
+    for key, value in (base or {}).items():
+        out[key] = _deep_merge(value, {}) if isinstance(value, dict) else value
     for key, value in (override or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = _deep_merge(out[key], value)
