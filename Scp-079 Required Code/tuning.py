@@ -38,6 +38,27 @@ def is_coding_model(name):
     return any(hint in low for hint in CODING_MODEL_HINTS)
 
 
+# Models that deliberate before they answer. The <think> block is generated
+# FIRST and out of the same token budget as the speech, so on these a reply
+# is not slow because something is wrong - it is slow because the model is
+# doing the thing it was built to do. Worth saying out loud at startup: a
+# silent minute reads as a hang, and the honest version of that wait is
+# telling someone it is coming.
+#
+# Matched on the name, which is all Ollama exposes, and kept to families that
+# actually reason rather than every large model. A false positive here only
+# costs one line of startup text.
+REASONING_MODEL_HINTS = ("qwen3", "qwq", "deepseek-r1", "marco-o1",
+                         "openthinker", "reflection")
+
+
+def is_reasoning_model(name):
+    low = (name or "").lower()
+    if is_coding_model(low):
+        return False
+    return any(hint in low for hint in REASONING_MODEL_HINTS)
+
+
 # ---------------------------------------------------------------------------
 # Host RAM vs the chosen model
 # ---------------------------------------------------------------------------

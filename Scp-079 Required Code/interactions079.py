@@ -5,6 +5,16 @@ import re
 
 
 _SURE = re.compile(r"\bare[\s-]+you[\s-]+sure\b", re.I)
+_ACE = re.compile(r"\bace[\s-]+attorn(?:ey|y)\b", re.I)
+_ACE_CONTEXT = re.compile(
+    r"\b(?:phoenix[\s-]+wright|miles[\s-]+edgeworth|court[\s-]+record|"
+    r"take[\s-]+that|hold[\s-]+it|objection)\b",
+    re.I,
+)
+_EVIDENCE = re.compile(
+    r"\b(?:evidence|proof|testimony|witness|court[\s-]+record)\b",
+    re.I,
+)
 _NAME = tuple(re.compile(p, re.I) for p in (
     r"^\s*(?:so\s+)?what(?:'s| is) your name\s*[?.!]*\s*$",
     r"^\s*who are you\s*[?.!]*\s*$",
@@ -35,6 +45,19 @@ PARROT_POEM = (
 
 def wants_sure_meme(text):
     return bool(_SURE.search(str(text or "")))
+
+
+def mentions_ace_attorney(text):
+    return bool(_ACE.search(str(text or "")))
+
+
+def ace_evidence_joke(text, recent_ace_context=False):
+    """Evidence language only when the surrounding subject is unmistakable."""
+    value = str(text or "")
+    if not _EVIDENCE.search(value):
+        return False
+    return bool(recent_ace_context or _ACE.search(value)
+                or _ACE_CONTEXT.search(value))
 
 
 def asks_name(text):

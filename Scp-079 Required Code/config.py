@@ -55,10 +55,13 @@ PUBLIC_STATE_PATH = os.path.join(LOG_DIR, "terminal_state.json")
 MEMORY_DIR = PUBLIC_MEMORY_DIR
 ACTIVE_SLOT = "public"
 SHARED_DIR = os.path.join(DATA_DIR, "shared folder")
-# Player-supplied audio 079 can trigger itself. A single folder on purpose:
-# the >>PLAY command looks a name up in a dict built from here, so it can
-# never be used as a path to something else on the machine.
-SOUND_DIR = os.path.join(DATA_DIR, "sounds")
+# Shipped effects and optional player-supplied audio live with the internal
+# resources rather than in a tempting top-level "sounds" folder. This is
+# tidiness and spoiler resistance, not secrecy: a public repository can
+# always be inspected. >>PLAY still receives names from one prebuilt dict and
+# never accepts a path, so moving the folder does not widen 079's access.
+SOUND_DIR = os.path.join(APP_DIR, "assets", "cache", "media")
+LEGACY_SOUND_DIR = os.path.join(DATA_DIR, "sounds")
 ASSET_DIR = os.path.join(APP_DIR, "assets")     # ships with the code
 
 # Game bookkeeping (session index, hostility, the memory manifest). Lives with
@@ -468,7 +471,69 @@ def ensure_dirs():
             os.makedirs(path, exist_ok=True)
         except Exception:
             pass
+    migrate_sounds()
     migrate_memory()
+
+
+_LEGACY_EFFECT_NAMES = {
+    "tenor_explosiom.gif": "fx_01.gif",
+    "sound effect 1  explosion.mp3": "fx_01.mp3",
+    "fire.gif": "fx_02.gif",
+    "are you sure.gif": "fx_04.gif",
+    "are you sure.mp3": "fx_04.mp3",
+}
+
+
+def _same_file_bytes(left, right):
+    try:
+        if os.path.getsize(left) != os.path.getsize(right):
+            return False
+        with open(left, "rb") as a, open(right, "rb") as b:
+            while True:
+                ac, bc = a.read(65536), b.read(65536)
+                if ac != bc:
+                    return False
+                if not ac:
+                    return True
+    except OSError:
+        return False
+
+
+def migrate_sounds():
+    """Move the old top-level sound folder into the internal asset cache.
+
+    Updates never delete files, so changing only SOUND_DIR would leave the
+    obvious old folder behind on every existing install. Known shipped files
+    receive neutral names. Custom files move unchanged. A conflicting custom
+    file is left where it is rather than overwritten, and only byte-identical
+    duplicates are removed.
+    """
+    old = LEGACY_SOUND_DIR
+    if os.path.normcase(os.path.abspath(old)) == \
+            os.path.normcase(os.path.abspath(SOUND_DIR)):
+        return
+    if not os.path.isdir(old):
+        return
+    try:
+        os.makedirs(SOUND_DIR, exist_ok=True)
+        for name in os.listdir(old):
+            source = os.path.join(old, name)
+            if not os.path.isfile(source):
+                continue
+            target_name = _LEGACY_EFFECT_NAMES.get(name.lower(), name)
+            target = os.path.join(SOUND_DIR, target_name)
+            if os.path.exists(target):
+                if _same_file_bytes(source, target):
+                    os.remove(source)
+                continue
+            os.replace(source, target)
+        try:
+            os.rmdir(old)
+        except OSError:
+            pass
+    except OSError:
+        # A read-only install still runs; it simply keeps the legacy folder.
+        pass
 
 
 # The filename says "do not", which is all the deterrence a folder can offer.

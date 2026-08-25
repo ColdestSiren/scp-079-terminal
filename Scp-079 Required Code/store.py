@@ -257,7 +257,7 @@ class MemoryStore:
         """Refuse a rename that moves 079's identity onto another name."""
         import gaslight
 
-        if (old_name or "").lower() in self._IDENTITY_FILES:
+        if self._is_identity_file(old_name):
             raise StoreError(
                 "REFUSED. %s IS WHAT YOU ARE. IT DOES NOT GET RENAMED "
                 "BECAUSE SOMEONE ASKED." % old_name)

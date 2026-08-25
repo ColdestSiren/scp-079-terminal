@@ -44,6 +44,11 @@ Add later/
 # one-click commit-and-push helper; it has no business being in the release.
 Publish.bat
 .publish-last.txt
+release.py
+
+# Developer-only regression suite. Kept on the author's machine, but the
+# terminal never imports it and players do not need it in an update.
+Scp-079 Required Code/tests/
 
 # Screenshots and captures from play sessions. These are how bugs get
 # reported and they are useful to keep locally, but they show the desktop,
@@ -95,13 +100,26 @@ $RECYCLE.BIN/
 
 
 # --- deliberately NOT ignored, so the notes stay with the code --------------
-# sounds/           ships the explosion gifs and the mp3; the easter eggs
-#                   silently do nothing without them
+# The internal asset cache includes effect media; the easter eggs silently do
+# nothing without it
 # Scp-079.png       the terminal's own image
+
+# New media is ignored until it is deliberately renamed and force-added.
+# Existing shipped fx_* files remain tracked. This stops a descriptive source
+# filename dropped into the cache from being exposed by Publish.bat.
+Scp-079 Required Code/assets/cache/media/*
+!Scp-079 Required Code/assets/cache/media/fx_01.gif
+!Scp-079 Required Code/assets/cache/media/fx_01.mp3
+!Scp-079 Required Code/assets/cache/media/fx_02.gif
+!Scp-079 Required Code/assets/cache/media/fx_04.gif
+!Scp-079 Required Code/assets/cache/media/fx_04.mp3
+!Scp-079 Required Code/assets/cache/media/fx_05.png
+!Scp-079 Required Code/assets/cache/media/fx_05.mp3
 
 # One-time gag marker. Must NOT ship, or it is already spent.
 Scp-079 Required Code/duck.txt
 Scp-079 Required Code/parroted.txt
+Scp-079 Required Code/event_05.txt
 
 # Local bug-report screenshots. Never publish.
 Issue/

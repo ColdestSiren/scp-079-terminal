@@ -316,10 +316,30 @@ def check(cfg):
         raise UpdateError("NO UPDATE SOURCE CONFIGURED")
 
     url = "https://api.github.com/repos/%s/releases/latest" % name
+    release = None
     try:
-        data = _read_json(url)
+        release = _read_json(url)
     except NotFound:
-        data = _latest_tag(name, cfg)
+        pass
+
+    # A Release and a tag are separate GitHub objects. The author may publish
+    # a proper Release for v1.0.3, then use Publish.bat to push the v1.0.4 tag
+    # before writing its notes. releases/latest still succeeds in that state,
+    # but it points at the older build. Always compare the newest semantic tag
+    # with the newest Release and use whichever version is actually newer.
+    tagged = None
+    try:
+        tagged = _latest_tag(name, cfg)
+    except UpdateError:
+        if release is None:
+            raise
+
+    data = release or tagged
+    if release is not None and tagged is not None:
+        release_tag = str(release.get("tag_name") or "").strip()
+        tagged_tag = str(tagged.get("tag_name") or "").strip()
+        if version.is_newer(tagged_tag, release_tag):
+            data = tagged
     _stamp_check()
 
     if data.get("draft"):

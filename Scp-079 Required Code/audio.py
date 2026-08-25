@@ -23,7 +23,8 @@ _MAX = 32767
 # conversation, which fires the bang without the gif, the lockout or the joke.
 # Substrings rather than exact names, because these files are dropped in by
 # hand and "tenor_explosiom" is already a typo nobody should have to reproduce.
-RESERVED_MARKERS = ("explos", "explosiom", "nuke", "fire", "are you sure")
+RESERVED_MARKERS = ("fx_01", "fx_04", "fx_05", "explos", "explosiom", "nuke",
+                    "fire", "are you sure")
 
 
 def _is_reserved(stem):
@@ -135,7 +136,7 @@ class Audio:
         self._load_custom()
 
     def _load_custom(self):
-        """Load anything the player dropped in the sounds folder.
+        """Load audio from the terminal's internal audio resource folder.
 
         These are the only sounds 079 can trigger itself. Keeping them to one
         folder means a >>PLAY command can never reach an arbitrary file on the
@@ -160,8 +161,8 @@ class Audio:
             key = stem.strip().lower().replace(" ", "_")[:24]
             if not key:
                 continue
-            # Assets belonging to the game's own effects live in the same
-            # folder and must NOT become part of 079's palette. It found the
+            # Assets belonging to the game's own effects live in this folder
+            # and must NOT become part of 079's palette. It found the
             # explosion sound sitting in its sound list and started firing it
             # in conversation - the bang with no gif, no lockout and no joke,
             # just a noise. They go somewhere it cannot name.
@@ -194,6 +195,22 @@ class Audio:
                 except Exception:
                     return False
         return False
+
+    def play_effect_fade(self, marker, milliseconds, scale=1.0):
+        """Start a reserved effect and fade its channel to silence."""
+        for key, sound in sorted(getattr(self, "reserved", {}).items()):
+            if marker not in key or not self.enabled:
+                continue
+            try:
+                sound.set_volume(max(0.0, min(1.0,
+                                              self.volume * scale * 2.0)))
+                channel = sound.play()
+                if channel is not None:
+                    channel.fadeout(max(1, int(milliseconds)))
+                return channel
+            except Exception:
+                return None
+        return None
 
     def play_custom(self, name, scale=1.0):
         """Play one of the player-supplied sounds by name. Returns True if it

@@ -175,8 +175,10 @@ whether anything is there**, until you type `/shared on`. It is forced shut
 again at every launch. Opening your own folder should be a decision made in
 a conversation, not something still true from last week.
 
-Custom sounds go in `sounds/`; the filename becomes the name, and 079 can
-trigger them itself.
+Optional custom sounds are still supported for source users. The shipped
+effects are kept inside the internal asset cache with neutral filenames so
+their triggers are not spoiled by casually browsing the project root. This
+is spoiler resistance, not encryption: a public copy can always be inspected.
 
 ---
 

@@ -546,6 +546,22 @@ class SCP079(Personality):
             steps.append(boot.line("  HOST %s" % host, "dim", cps=999))
         return steps
 
+    def _reasoning_steps(self, model):
+        """Warn before a deliberative model's trace is enabled.
+
+        Reasoning remains off by default because it shares the response token
+        budget and can take minutes on a model that spills out of VRAM. This
+        line makes that cost visible during startup without pretending the
+        terminal is currently waiting on hidden work.
+        """
+        if not tuning.is_reasoning_model(model):
+            return []
+        return [
+            boot.line("  DELIBERATIVE MODEL PROFILE DETECTED", "warn", cps=999),
+            boot.line("  REASONING TRACE MAY TAKE MINUTES -- OFF BY DEFAULT",
+                      "dim", cps=999),
+        ]
+
     def _handshake_steps(self, storage):
         """HANDSHAKE - can the model store be REACHED?
 
@@ -713,6 +729,7 @@ class SCP079(Personality):
             boot.line("  NODE %s   SESSION %s   CLEARANCE %s" % (node, session, clearance), "dim", cps=999),
             boot.blank(),
         ] + self._memory_steps(core, model or cfg.get("model"), size) + [
+        ] + self._reasoning_steps(model or cfg.get("model")) + [
         ] + self._power_steps() + [
         ] + self._disk_steps() + [
         ] + self._storage_steps(mem) + [

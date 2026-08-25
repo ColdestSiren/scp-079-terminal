@@ -365,12 +365,17 @@ class App:
         # turn them off mid-session
         self.easter_eggs = bool(cfg.get("effects", {}).get("easter_eggs", True))
         self._name_questions = 0
+        self._objection_used = False
+        self._ace_context_turns = 0
         self._consciousness_removed = False
         self._parrot_pending_lock = False
         self._parrot_face = None
         self._parrot_face_until = 0.0
         self._show_bypass_hint = False
         self.sure = None
+        self.ace_surface = None
+        self.ace_remaining = 0.0
+        self.ace_channel = None
         self._detonating = False    # said OKAY, waiting to blow up
         self.explosion = None
         self.fire = None
@@ -416,6 +421,9 @@ class App:
         self.race = None
         self._race_check = 0.0
         self._race_pending = False
+        # Esc used to close the game outright, with no way back from a
+        # mistyped key. See ask_quit().
+        self.quit_prompt = False
         self.link = None
         self.pending_failure = None
         self.session = None
@@ -536,6 +544,7 @@ class App:
         self.explosion = None
         self.fire = None
         self.sure = None
+        self.stop_ace_event()
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -2009,6 +2018,26 @@ class App:
             if self.play_sure_meme():
                 return
 
+        ace_named = interactions079.mentions_ace_attorney(text)
+        ace_evidence = interactions079.ace_evidence_joke(
+            text, recent_ace_context=self._ace_context_turns > 0)
+        if ace_named:
+            self._ace_context_turns = 3
+        elif self._ace_context_turns > 0:
+            self._ace_context_turns -= 1
+
+        if self.easter_eggs and ace_evidence and not self._objection_used:
+            self._objection_used = True
+            reply = "OBJECTION!"
+            self.say_after_thinking([reply], spread=(0.45, 0.9))
+            self.session.log(self.personality.speaker, reply)
+            self.session.record(text, reply)
+            return
+
+        if self.easter_eggs and ace_named:
+            if self.play_ace_event():
+                return
+
         # Sustained abuse ends the conversation outright. Weighted by how bad
         # the remark actually was, so the meter climbs at a rate that reads as
         # patience wearing out rather than as a four-step counter.
@@ -2988,15 +3017,44 @@ class App:
 
     def play_sure_meme(self):
         """Play the full-screen three-word reaction GIF once per message."""
-        path = os.path.join(config_mod.SOUND_DIR, "are you sure.gif")
+        path = os.path.join(config_mod.SOUND_DIR, "fx_04.gif")
         frames = gifplay.load(path, self.size)
         if not frames:
             return False
         self.sure = gifplay.Animation(frames)
-        # A matching `are you sure.mp3/.wav/.ogg` can be dropped beside the
-        # GIF later. It is reserved from 079's own >>PLAY palette.
-        self.audio.play_effect("are_you_sure")
+        # The matching audio is reserved from 079's own >>PLAY palette.
+        self.audio.play_effect("fx_04")
         return True
+
+    ACE_SECONDS = 7.0
+
+    def play_ace_event(self):
+        """Show the install-wide static-image event once, with a slow fade."""
+        path = os.path.join(config_mod.SOUND_DIR, "fx_05.png")
+        try:
+            image = pygame.image.load(path).convert_alpha()
+            image = gifplay._cover(image, self.size)
+        except Exception:               # noqa: BLE001 - optional visual
+            return False
+        marker = os.path.join(config_mod.APP_DIR, "event_05.txt")
+        if not interactions079.claim_once(marker):
+            return False
+        self.ace_surface = image
+        self.ace_remaining = self.ACE_SECONDS
+        self.ace_channel = self.audio.play_effect_fade(
+            "fx_05", int(self.ACE_SECONDS * 1000), scale=1.0)
+        return True
+
+    def stop_ace_event(self):
+        channel = getattr(self, "ace_channel", None)
+        if channel is not None:
+            try:
+                channel.fadeout(250)
+            except Exception:
+                pass
+        self.ace_channel = None
+        self.ace_surface = None
+        self.ace_remaining = 0.0
 
     def begin_parrot_consequence(self):
         """Queue the install-wide one-shot poem, then a one-hour lock."""
@@ -3020,13 +3078,13 @@ class App:
     def detonate(self):
         """Play the bang, then leave the fire up for a bit."""
         frames = gifplay.load(os.path.join(config_mod.SOUND_DIR,
-                                           "tenor_explosiom.gif"), self.size)
+                                           "fx_01.gif"), self.size)
         # Pillow missing or the gif gone: skip straight to the aftermath
         # rather than freezing on a blank screen
         self.explosion = gifplay.Animation(frames) if frames else None
         # play_effect, not play_custom: the bang lives in the reserved set now,
         # which is exactly what stops 079 firing it in conversation.
-        self.audio.play_effect("explos")
+        self.audio.play_effect("fx_01")
         if self.explosion is None:
             self.finish_detonation()
             return
@@ -3035,7 +3093,7 @@ class App:
     def finish_detonation(self):
         self.explosion = None
         self.fire = gifplay.Animation(
-            gifplay.load(os.path.join(config_mod.SOUND_DIR, "Fire.gif"),
+            gifplay.load(os.path.join(config_mod.SOUND_DIR, "fx_02.gif"),
                          self.size), loop=True)
         self.recall.lock(self.EXPLODE_LOCK_SECONDS, reason="exploded")
         self.enter_rejected(relock=False)
@@ -3161,6 +3219,33 @@ class App:
             self.audio.play("beep")
         else:
             self.sys_notice("MEMORY VIEW CLOSED")
+
+    QUIT_PROMPT = "END COMMUNICATION?   [Y] YES    [N] NO"
+
+    def ask_quit(self):
+        """Esc closed the game outright. Ask first.
+
+        One mistyped key ended a session that 079 had been building state in
+        all evening - hostility, profile, memory it had written - and there
+        was no way back from it. The question sits at the TOP of the screen
+        rather than in the middle: the conversation underneath is the thing
+        being ended, and it should still be visible while the answer is being
+        given.
+        """
+        self.quit_prompt = True
+        self.audio.play("beep", 0.6)
+
+    def draw_quit_prompt(self, surface):
+        if not self.quit_prompt:
+            return
+        c = self.theme
+        text = self.font.render(self.QUIT_PROMPT, True, c["bg"])
+        pad = 6
+        bar = pygame.Surface((surface.get_width(),
+                              text.get_height() + pad * 2))
+        bar.fill(c["warn"])
+        surface.blit(bar, (0, 0))
+        surface.blit(text, ((surface.get_width() - text.get_width()) // 2, pad))
 
     def show_help(self):
         self.help = helppanel_mod.HelpPanel(self.theme, self.size)
@@ -3538,6 +3623,25 @@ class App:
                 self.sure = None
             return
 
+
+        if self.ace_surface is not None:
+            if event.key == pygame.K_ESCAPE:
+                self.stop_ace_event()
+            return
+
+        # Answered here, above everything, because while it is up it is the
+        # only question on the screen. Nothing else may read the key - a Y
+        # that also typed a Y into the chat box would be a nasty surprise
+        # after answering "no".
+        if self.quit_prompt:
+            pressed = (event.unicode or "").lower()
+            if pressed == "y" or event.key == pygame.K_RETURN:
+                self.running = False
+            elif pressed == "n" or event.key == pygame.K_ESCAPE:
+                self.quit_prompt = False
+                self.audio.play("key", 0.5)
+            return
+
         # F11 anywhere, the way every other program does it - a setting buried
         # two screens deep is not much use when you are mid-conversation.
         if event.key == pygame.K_F11:
@@ -3565,7 +3669,7 @@ class App:
                 else:
                     self.draw_memory_viewer()
                 return
-            self.running = False
+            self.ask_quit()
             return
 
         if self.stage == "rejected":
@@ -3883,6 +3987,14 @@ class App:
             else:
                 return
 
+
+        if self.ace_surface is not None:
+            self.ace_remaining -= dt
+            if self.ace_remaining <= 0.0:
+                self.stop_ace_event()
+            else:
+                return
+
         # the reference panel times itself out; clicking [X] retires it early
         if self.help is not None and not self.help.update(dt):
             self.help = None
@@ -4031,6 +4143,10 @@ class App:
         # Corner notice, under the full-screen effects below so a meltdown
         # still owns the screen outright.
         self.draw_update_toast(content)
+        # Over the terminal, under the full-screen effects below. A meltdown
+        # still owns the screen outright - it is about to end the session
+        # itself, so a question about ending it is not the point any more.
+        self.draw_quit_prompt(content)
         # The meltdown owns the screen while it runs, over everything else
         # including the ordinary flicker - two full-screen effects at once
         # would read as the renderer breaking rather than as 079 breaking.
@@ -4040,6 +4156,14 @@ class App:
 
         if self.sure is not None and self.sure.surface() is not None:
             content.blit(self.sure.surface(), (0, 0))
+            return content
+
+        if self.ace_surface is not None:
+            overlay = self.ace_surface.copy()
+            fraction = max(0.0, min(1.0,
+                                    self.ace_remaining / self.ACE_SECONDS))
+            overlay.set_alpha(int(round(255 * fraction)))
+            content.blit(overlay, (0, 0))
             return content
 
         # last, and over everything - for those few frames it IS the screen
@@ -4356,7 +4480,7 @@ def take_shot(cfg, path, stage, seconds):
     elif stage == "exploding":
         app.stage = "exploding"
         app.explosion = gifplay.Animation(gifplay.load(
-            os.path.join(config_mod.SOUND_DIR, "tenor_explosiom.gif"), app.size))
+            os.path.join(config_mod.SOUND_DIR, "fx_01.gif"), app.size))
         for _ in range(9):          # a few frames in, mid-fireball
             app.explosion.update(0.09)
     elif stage == "onfire":
@@ -4364,7 +4488,7 @@ def take_shot(cfg, path, stage, seconds):
         app.recall.data["locked_until"] = __import__("time").time() + 47
         app.recall.data["lock_reason"] = "exploded"
         app.fire = gifplay.Animation(gifplay.load(
-            os.path.join(config_mod.SOUND_DIR, "Fire.gif"), app.size), loop=True)
+            os.path.join(config_mod.SOUND_DIR, "fx_02.gif"), app.size), loop=True)
         for _ in range(6):
             app.fire.update(0.05)
     elif stage == "code":
