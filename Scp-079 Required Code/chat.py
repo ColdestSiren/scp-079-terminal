@@ -335,7 +335,7 @@ class ChatSession:
         # change mid-session, so it costs nothing in cache, and a fact that
         # moves around is not much of a fact. See whoami.py for why this sits
         # on the record side of the record/claim line.
-        system += whoami.brief()
+        system += whoami.brief(self.cfg)
 
         # Kept for the outgoing check in poll(). These two strings ARE the
         # record: the persona is 079's canon (the Sorcerer, the Foundation,

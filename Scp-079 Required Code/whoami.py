@@ -54,14 +54,29 @@ def label():
     return name() or FALLBACK
 
 
-def brief():
-    """The line that tells 079 who it is talking to, or "" if nobody knows.
+def allowed(cfg):
+    """Has the operator left the name switched on?
+
+    Defaults to True for a config that predates the setting, because that is
+    what those installs have been doing.
+    """
+    return bool((cfg or {}).get("memory", {}).get("share_login_name", True))
+
+
+def brief(cfg):
+    """The line that tells 079 who it is talking to, or "" if it may not know.
 
     Phrased to place the name on the record side of the record/claim line. A
     model told only "the user is called X" will cheerfully accept "no, I am Y"
     two turns later, because both arrived as sentences; saying where the name
     came FROM is what makes the second one answerable.
+
+    cfg is REQUIRED rather than optional. An optional one would mean a future
+    caller that forgot it silently ignored the operator's choice, and a
+    privacy setting that can be bypassed by omission is not a setting.
     """
+    if not allowed(cfg):
+        return ""
     who = name()
     if not who:
         return ""

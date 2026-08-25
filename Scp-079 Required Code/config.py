@@ -261,6 +261,13 @@ DEFAULTS = {
         # OFF by default. This is the only feature that gives a language
         # model a lever on the actual machine.
         "extended": False,
+        # Whether 079 is told the name of the account it is running under,
+        # so it can address whoever is at the keyboard. ON by default: it is
+        # read from the local machine and goes to a local model, so nothing
+        # leaves. Off is for anyone who would rather their login name did not
+        # appear on screen, which is a reasonable thing to want if the game
+        # is being recorded. See whoami.py.
+        "share_login_name": True,
     },
 
     "devtrap": {

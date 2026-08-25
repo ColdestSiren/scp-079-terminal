@@ -110,6 +110,7 @@ class SettingsScreen:
             ("LOOKUP SCOPE", self._val_scope, self._set_scope),
             ("AUTO-LOG OBSERVATIONS", self._val_auto, self._set_auto),
             ("LOCK MEMORY FILES", self._val_lockfiles, self._set_lockfiles),
+            ("TELL 079 YOUR NAME", self._val_login, self._set_login),
             ("LET 079 TOUCH THIS PC", self._val_extended, self._set_extended),
             ("MINIGAMES", self._val_minigames, self._set_minigames),
             (None, None, None),
@@ -270,6 +271,20 @@ class SettingsScreen:
         fx["easter_eggs"] = not fx.get("easter_eggs", True)
         self.message = (("THE JOKES ARE BACK ON." if fx["easter_eggs"]
                          else "NO EXPLOSIONS, NO FACE."), "dim")
+
+    # Whether it is told the account name it is running under. Grouped with
+    # the other "what may 079 reach" rows rather than with the model knobs,
+    # because that is the question being asked - it is about what the game
+    # tells it, not about how the model behaves.
+    def _val_login(self):
+        return "ON" if self._mem().get("share_login_name", True) else "OFF"
+
+    def _set_login(self, step):
+        m = self._mem()
+        m["share_login_name"] = not m.get("share_login_name", True)
+        self.message = (("IT WILL CALL YOU BY YOUR ACCOUNT NAME."
+                         if m["share_login_name"]
+                         else "IT WILL NOT BE TOLD WHO YOU ARE."), "dim")
 
     def _val_lockfiles(self):
         return "ON" if self._mem().get("lock_files", False) else "OFF"
