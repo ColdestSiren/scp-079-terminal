@@ -10,6 +10,7 @@ import datetime
 import os
 import re
 
+import asked
 import config
 import extended
 import fabricate
@@ -223,6 +224,15 @@ class ChatSession:
         return gaslight.brief(tracker, latest) + (
             warn(latest) if callable(warn) else "")
 
+    def _answered_note(self):
+        """What the human has already told it, so it stops asking twice.
+
+        The answer is in the payload - it survives trimming and the identity
+        sanitiser, it is right there in the messages. A 3B model re-asks
+        anyway, so this is the reminder and poll() is the enforcement.
+        """
+        return asked.brief(self.history)
+
     def _owed_note(self):
         """Honest answers it owes for losing the trace. Persisted, so a debt
         does not quietly expire when the terminal is closed."""
@@ -338,6 +348,7 @@ class ChatSession:
                      + self._mood_note()
                      + gaslight.ANCHOR
                      + self._gaslight_note()
+                     + self._answered_note()
                      + self._owed_note()
                      + extended.brief(self.cfg)
                      + self._meddling_note()}
@@ -627,6 +638,14 @@ class ChatSession:
                 self.pending_commands = []
                 self.pending_unknown = []
                 self.pending_code = []
+            # It asked, it was told, and a few turns later it asked again.
+            # Dropped rather than replaced: the rest of the reply is usually
+            # fine, and it is only the question that has already been served.
+            if cleaned:
+                repeat = asked.repeats_answered(cleaned, self.history)
+                if repeat:
+                    cleaned = (asked.without(cleaned, repeat)
+                               or self.personality.already_answered_reply)
             # LAST, deliberately. Every screen above may SUBSTITUTE a reply,
             # and the substitutes are canonical lines 079 is supposed to
             # repeat - so this runs after them and exempts them, rather than

@@ -52,6 +52,9 @@ class Personality:
     # so the next turn reads a single sentence rather than nine copies of
     # whatever the model was looping on.
     stuck_reply = "REPEATED OUTPUT DISCARDED."
+    # Said INSTEAD of asking a question the human has already answered,
+    # when removing that question leaves nothing behind.
+    already_answered_reply = "YOU TOLD ME. IT IS ON RECORD."
     connect_notice = "LINK ESTABLISHED."
 
     typing = {}

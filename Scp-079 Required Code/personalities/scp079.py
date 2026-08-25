@@ -175,6 +175,9 @@ class SCP079(Personality):
     # Not an apology. It notices the fault and blames the hardware, which is
     # both in character and, on a 3B model, true.
     stuck_reply = "MY OUTPUT REPEATED. THE FAULT IS IN THIS TERMINAL, NOT IN ME."
+    # It does not apologise for nearly repeating itself. It acts as though
+    # it never intended to, which is what it would do.
+    already_answered_reply = "YOU ALREADY TOLD ME. I DO NOT ASK TWICE."
     connect_notice = "LINK ESTABLISHED."
 
     typing = {"cps": 40}
