@@ -416,10 +416,6 @@ class App:
         self.race = None
         self._race_check = 0.0
         self._race_pending = False
-        # The dev-shortcut trap. Springs for anyone who is not the
-        # author; the shortcut still works for them.
-        self.trap = None
-        self._trap_lock = False
         self.link = None
         self.pending_failure = None
         self.session = None
@@ -1585,9 +1581,6 @@ class App:
         # lockout half stays open to everyone, because that is the part the
         # hint is about and the part that costs nobody anything.
         if devtrap.pressed_bypass(event):
-            if devtrap.armed(self.cfg):
-                self.spring_dev_trap()
-                return
             if not devtrap.is_owner(self.cfg):
                 self.console.write("  [DENIED] THAT IS NOT YOUR SLOT.",
                                    self.theme["alarm"])
@@ -2256,44 +2249,6 @@ class App:
             if self.session is not None:
                 self.session.log(self.personality.speaker, line)
             self._race_pending = True
-
-    def spring_dev_trap(self):
-        """Someone who is not the author tried the developer shortcut."""
-        self.trap = devtrap.Punish()
-        self._trap_lock = True
-        self.stage = "devtrap"
-        self.console.rows = []
-        self.console.blank()
-        self.console.write("  " + devtrap.TAUNT, self.theme["alarm"])
-        self.audio.play("static", 0.9)
-        self.disk.note_sys("DEV PATH -- REFUSED")
-
-    def update_dev_trap(self, dt):
-        if self.trap is None:
-            return
-        if self.trap.update(dt):
-            return
-        self.trap = None
-        if self._trap_lock:
-            self._trap_lock = False
-            # An hour, and the shortcut that caused it will not clear it -
-            # a trap you escape with the thing that sprang it is not a trap.
-            self.recall.lock(devtrap.LOCK_MINUTES * 60.0, reason="devtrap")
-            self.enter_rejected(relock=False)
-
-    def draw_dev_trap(self, surface):
-        """Its face, held steady, then fading. No flashing here: this is not
-        the meltdown, it needs no photosensitivity warning, and a steady
-        stare suits being caught better than a strobe would."""
-        image = getattr(self.flash, "image", None)
-        alpha = self.trap.alpha() if self.trap else 0
-        if image is None or alpha <= 0:
-            return
-        # A copy, because the shared surface carries the subliminal
-        # flicker's own alpha and writing to it would change that too.
-        frame = image.copy()
-        frame.set_alpha(alpha)
-        surface.blit(frame, (0, 0))
 
     def draw_meltdown(self, surface):
         """The warning, then the face. Drawn before the CRT pass so it scans
@@ -3620,9 +3575,6 @@ class App:
             if devtrap.pressed_bypass(event):
                 if self.recall.lock_reason() == "parrot":
                     return
-                if devtrap.armed(self.cfg):
-                    self.spring_dev_trap()
-                    return
                 self.recall.clear_lock()
                 self.recall.reset_hostility()
                 self._cutoff_minutes = None
@@ -3952,12 +3904,6 @@ class App:
                     self.enter_menu()
             return
 
-        # The dev trap owns the screen while it plays out, regardless of
-        # whatever stage was showing when the shortcut was pressed.
-        if self.trap is not None:
-            self.update_dev_trap(dt)
-            return
-
         if self.stage == "race" and self.race is not None:
             self.race.update(dt)
             self.draw_race()
@@ -4090,12 +4036,6 @@ class App:
         # would read as the renderer breaking rather than as 079 breaking.
         if self.melt is not None:
             self.draw_meltdown(content)
-            return content
-
-        # The dev trap holds its face over the screen for the same reason,
-        # though it does not flash - a steady stare suits this one better.
-        if self.trap is not None:
-            self.draw_dev_trap(content)
             return content
 
         if self.sure is not None and self.sure.surface() is not None:
@@ -4325,10 +4265,6 @@ def take_shot(cfg, path, stage, seconds):
         app.console.blank()
         app.console.write_segments(app.user_prefix() + [(c["user"], "yes")])
         app.show_update_toast({"version": "V1.1.0"})
-    elif stage == "devtrap":
-        app.stage = "chat"
-        app.session = DemoSession(cfg, app.personality, app.model)
-        app.spring_dev_trap()
     elif stage == "race":
         app.stage = "chat"
         app.session = DemoSession(cfg, app.personality, app.model)

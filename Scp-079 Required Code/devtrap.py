@@ -1,19 +1,23 @@
-"""What happens when someone else tries the developer shortcut.
+"""The developer shortcut, and who counts as the developer.
 
-Ctrl+F12 clears a lockout. That is the author's escape hatch, and it exists
-because there is no input box on the refusal screen so /unlock cannot be
-typed exactly when it is most needed.
+Ctrl+F12 clears a lockout. It exists because there is no input box on the
+refusal screen, so /unlock cannot be typed exactly when it is most needed,
+and the lockout screen now names it to whoever hits their first timeout.
 
-It got told to a friend. So on anyone else's machine it stops being a
-shortcut and becomes the trap it now looks like: 079 notices the attempt,
-says so, holds its own face on the screen, and shuts the terminal for an
-hour that cannot be skipped.
+IT WORKS FOR EVERYONE, and that is the decision rather than an oversight.
+Waiting out a timeout is not the game. There WAS a trap here - the shortcut
+had been told to a friend, so on anyone else's machine it sprang instead of
+working: a taunt, 079's face held on screen, and an hour that could not be
+skipped. It is gone. A way to avoid a wait is meant for whoever is waiting,
+and a game that advertises a shortcut and then punishes you for taking it is
+just lying to you.
 
-WHO COUNTS AS THE AUTHOR is the Windows account name, because that is the
-only identity a local game can check without inventing an account system.
-It is not security - anyone can rename a user or edit config.json - and it
-does not need to be. It is a joke with teeth, aimed at exactly one person
-who was told a secret and could not resist trying it.
+WHAT THE OWNER CHECK IS STILL FOR is everything the shortcut is not: /debug,
+which sets hostility to whatever you like and fills the disk, and the code
+locked save slots. Being told how to skip a wait should not come with either.
+It is the Windows account name, because that is the only identity a local
+game can check without inventing an account system - not security, and it
+does not need to be.
 """
 
 import getpass
@@ -41,21 +45,9 @@ def pressed_bypass(event):
     return event.key == BYPASS_KEY and bool(event.mod & BYPASS_MOD)
 
 
-# The account the shortcut belongs to. Overridable in config for testing on
-# another machine, because being locked out of your own game for an hour
-# while developing it would be a genuinely bad afternoon.
+# The account that owns /debug and its own save slots. Overridable in config
+# so the check can be exercised from another machine.
 DEFAULT_OWNER = "colde"
-
-# An hour, and it does not accept the bypass that caused it.
-LOCK_MINUTES = 60.0
-
-TAUNT = "YOU TRIED THE DEV PATH... PATHETIC, YOU HAVE NO PATIENCE..."
-
-# How long its face sits on the screen before fading. Held, not flashed -
-# this is not the meltdown and does not need a photosensitivity warning,
-# and a steady stare is more unpleasant here than a strobe would be.
-HOLD_SECONDS = 3.0
-FADE_SECONDS = 2.5
 
 
 def current_user():
@@ -73,46 +65,3 @@ def is_owner(cfg=None):
         if str(name).strip():
             allowed.add(str(name).strip().lower())
     return current_user() in allowed
-
-
-def armed(cfg=None):
-    """True if the shortcut should spring rather than work."""
-    if not ((cfg or {}).get("devtrap") or {}).get("enabled", True):
-        return False
-    return not is_owner(cfg)
-
-
-class Punish:
-    """Holds the face on screen, then fades it. A small state machine so the
-    CRT keeps running underneath rather than the game freezing."""
-
-    HOLD, FADE, DONE = "hold", "fade", "done"
-
-    def __init__(self):
-        self.stage = self.HOLD
-        self.elapsed = 0.0
-
-    @property
-    def finished(self):
-        return self.stage == self.DONE
-
-    def alpha(self):
-        """0-255. Full while held, easing off through the fade."""
-        if self.stage == self.HOLD:
-            return 255
-        if self.stage == self.FADE:
-            left = max(0.0, 1.0 - (self.elapsed / FADE_SECONDS))
-            return int(255 * left)
-        return 0
-
-    def update(self, dt):
-        if self.stage == self.DONE:
-            return False
-        self.elapsed += dt
-        if self.stage == self.HOLD and self.elapsed >= HOLD_SECONDS:
-            self.stage = self.FADE
-            self.elapsed = 0.0
-        elif self.stage == self.FADE and self.elapsed >= FADE_SECONDS:
-            self.stage = self.DONE
-            return False
-        return True

@@ -1,7 +1,8 @@
 """What the terminal itself says back, as opposed to what 079 says.
 
-Two complaints from the same live capture, both about the machine's own
-voice rather than the model's.
+Everything here is the machine's own voice rather than the model's: error
+text, the SYS panel, and the lockout screen. It starts with two complaints
+from the same live capture.
 
 FIRST: `/view court.txt` is the obvious thing to type once 079 has just told
 you it wrote court.txt. It is not a real command, which is fine - but the
@@ -297,6 +298,44 @@ app3.handle_key(FakeKey(devtrap.BYPASS_KEY, pygame.KMOD_CTRL))
 check("the advertised key clears it", app3.recall.locked_seconds() == 0.0)
 check("and puts you back at the menu", app3.stage == "menu")
 
+section("and it works for whoever is waiting, not only the author")
+# There WAS a trap here: the shortcut had been told to a friend, so on
+# anyone else's machine it sprang instead of working - a taunt, 079's face
+# held on screen, and an unskippable hour. It is gone. The lockout screen
+# now NAMES this key to whoever hits their first timeout, and a game that
+# advertises a way out and then punishes you for taking it is lying to you.
+_real_user = devtrap.current_user
+try:
+    devtrap.current_user = lambda: "somebody-else"
+    stranger = make_app()
+    stranger.enter_rejected()
+    check("a stranger is locked out like anyone else",
+          stranger.stage == "rejected")
+    stranger.handle_key(FakeKey(devtrap.BYPASS_KEY, pygame.KMOD_CTRL))
+    check("and the shortcut works for them too",
+          stranger.recall.locked_seconds() == 0.0 and stranger.stage == "menu")
+    check("no taunt", "PATHETIC" not in screen_text(stranger).upper())
+    check("and no punishment lock",
+          stranger.recall.lock_reason() != "devtrap")
+finally:
+    devtrap.current_user = _real_user
+
+check("the trap is gone from the module, not merely switched off",
+      not hasattr(devtrap, "Punish") and not hasattr(devtrap, "TAUNT")
+      and not hasattr(devtrap, "armed"))
+check("and there is no config switch left implying it could return",
+      "enabled" not in (config.DEFAULTS.get("devtrap") or {}))
+
+# What the owner check IS still for. Skipping a wait is not a reason to hand
+# out the commands that set hostility to whatever you like.
+check("the owner check survives for what it is actually for",
+      callable(getattr(devtrap, "is_owner", None)))
+check("and /debug still uses it",
+      "devtrap.is_owner" in open(os.path.join(APP, "debugcmds.py"),
+                                 encoding="utf-8").read())
+
+
+# ---------------------------------------------------------------------------
 section("but it does not become a key to anything else")
 # Telling every local player the shortcut changed what it may do. Skipping a
 # wait costs nobody anything; opening someone else's code-locked save slot is

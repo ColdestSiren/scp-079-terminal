@@ -254,19 +254,21 @@ DEFAULTS = {
     },
 
     "devtrap": {
-        # Ctrl+F12 clears a lockout. That is the author's escape hatch,
-        # and it got told to a friend - so on anyone else's machine it
-        # springs instead of working. Matched on the Windows account
-        # name, the only identity a local game can check without
-        # inventing an account system. Not security, and it does not
-        # need to be: it is a joke with teeth aimed at one person.
-        # OFF. The shortcut works for everyone, including whoever it
-        # was told to. Set true to arm it again - the whole mechanism
-        # is still here, it just does not fire.
-        "enabled": False,
-        # Extra account names the shortcut still works for, so being
-        # locked out of your own game for an hour while developing it
-        # is avoidable.
+        # Kept under this name because /debug and the save slots read it,
+        # and renaming a key everyone's config.json already has would
+        # silently reset it for every existing install.
+        #
+        # There WAS a trap here: Ctrl+F12 clears a lockout, the shortcut
+        # got told to a friend, and on anyone else's machine it sprang
+        # instead of working - a taunt and an unskippable hour. It is
+        # gone. The shortcut is an escape from a wait, the lockout screen
+        # now names it to whoever hits their first timeout, and a game
+        # that advertises a way out and then punishes you for taking it
+        # is lying to you.
+        #
+        # What is left is who owns /debug and the code-locked save slots,
+        # matched on the Windows account name - the only identity a local
+        # game can check without inventing an account system.
         "owners": [],
     },
 
@@ -276,10 +278,10 @@ DEFAULTS = {
         # disk. It was open to anyone who typed it, which quietly made
         # every meter in the game advisory.
         #
-        # Matched on the same Windows account as devtrap above, so there
-        # is one definition of "the author" rather than two that drift.
-        # Independent of devtrap.enabled: the shortcut being disarmed is
-        # not a reason to hand the debug menu to everyone.
+        # Matched on the same Windows account as the block above, so
+        # there is one definition of "the author" rather than two that
+        # drift. Independent of the Ctrl+F12 shortcut, which works for
+        # everyone: skipping a wait is not a reason to hand out /debug.
         #
         # Honest about what this is worth - it is an account name, and
         # anyone with the source can delete the check. It stops a friend
