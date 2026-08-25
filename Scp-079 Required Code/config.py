@@ -218,6 +218,18 @@ DEFAULTS = {
         "enabled": True,
     },
 
+    # The last resort when a model is eating the machine. OFF by default: it
+    # force-closes a running game, which is a rude thing to do to someone
+    # mid-conversation and should only happen to a person who asked for it.
+    # Two values rather than one, because a threshold alone would fire during
+    # model load - which legitimately pins memory for a few seconds and then
+    # comes back down. See watchdog.py.
+    "watchdog": {
+        "enabled": False,
+        "threshold_percent": 95,
+        "seconds": 60,
+    },
+
     # 079's own storage. Only the .txt files it writes count against the
     # quota - session transcripts are the game's records, not its memory.
     "memory": {

@@ -79,6 +79,7 @@ import tuning as tuning_mod
 import tools
 import updater as updater_mod
 import version as version_mod
+import watchdog as watchdog_mod
 
 OFFLINE = "--offline" in sys.argv
 
@@ -362,6 +363,16 @@ class App:
         self.picker_models = []     # custom model picker
         self.picker_cursor = 0
         self.code_blocks = []       # fenced code from replies, for /copy
+        # Marker ids for code frames, from a counter rather than the list
+        # length. A block's POSITION in the list is what /copy names and it
+        # has to stay 1..len - but once the cap starts dropping the oldest
+        # blocks that position stops being unique OVER TIME, and the marker
+        # rows are found BY TEXT in a 600-row transcript. Block 9 was drawn
+        # with block 8's marker text while block 8's rows were still on
+        # screen, so the frame ran from the old top to the new bottom and
+        # boxed every reply in between. The two numbers answer different
+        # questions and now have different sources.
+        self._code_seq = 0
         self.patience = patience_mod.Patience(cfg)
         self._patience_spent = False
         self.memviewer = None       # /view memory browser
@@ -384,6 +395,12 @@ class App:
         # part of the save: restarting is supposed to give it back, and a
         # joke that fires on every mention of the word stops being one.
         self._escape_used = False
+        # Host memory guard. Off unless the operator turned it on.
+        self.watchdog = watchdog_mod.Watchdog(cfg)
+        # Deadline, not a sleep. The reason has to be drawn and then held on
+        # screen, and blocking the loop to do that would leave the window
+        # unresponsive on a machine that already looks hung.
+        self._watchdog_quit_at = None
         self._name_questions = 0
         self._objection_used = False
         self._ace_context_turns = 0
@@ -2591,9 +2608,7 @@ class App:
                 # it, rather than the box appearing above the sentence that
                 # introduces it
                 for block in blocks:
-                    self.code_blocks.append(block)
-                    del self.code_blocks[:-self.MAX_CODE_BLOCKS]
-                    self.show_code_block(block, len(self.code_blocks))
+                    self.add_code_block(block)
                 self.run_commands()
                 if self.stage == "chat":
                     self.maybe_auto_note()
@@ -2934,13 +2949,28 @@ class App:
     # reports where rows landed BY THEIR TEXT, so a block needs findable rows
     # at its top and bottom for the frame to know what rectangle to draw. They
     # occupy a line each and are never seen.
-    def code_header_text(self, index):
-        return "─CODE-TOP-%d" % index
+    # These take a block's UID, not its position in the list. See _code_seq.
+    def code_header_text(self, uid):
+        return "─CODE-TOP-%d" % uid
 
-    def code_end_text(self, index):
-        return "─CODE-END-%d" % index
+    def code_end_text(self, uid):
+        return "─CODE-END-%d" % uid
 
-    def show_code_block(self, block, index):
+    def add_code_block(self, block):
+        """Number a block, keep it, and print it. The only way blocks arrive.
+
+        Numbering and appending in one place is deliberate: a block that
+        reaches the console without a uid draws its frame around whatever
+        else happens to be carrying that marker text.
+        """
+        self._code_seq += 1
+        block["uid"] = self._code_seq
+        self.code_blocks.append(block)
+        del self.code_blocks[:-self.MAX_CODE_BLOCKS]
+        self.show_code_block(block)
+        return block
+
+    def show_code_block(self, block):
         """Print the code, leaving markers for the frame to be drawn around.
 
         The box itself is drawn in compose() rather than spelled out in +---
@@ -2950,7 +2980,8 @@ class App:
         c = self.theme
         lines = block["code"].splitlines()
         self.console.blank()
-        self.console.write(self.code_header_text(index), c["bg"])   # title band
+        uid = block.get("uid", 0)
+        self.console.write(self.code_header_text(uid), c["bg"])   # title band
         for line in lines[:self.CODE_PREVIEW_ROWS]:
             self.console.write("     " + line, c["bright"])
         if len(lines) > self.CODE_PREVIEW_ROWS:
@@ -2963,7 +2994,7 @@ class App:
             # over something that looks right and will not run
             self.console.write("     [WRITTEN IN CAPS -- WILL NOT RUN AS-IS]",
                                c["alarm"])
-        self.console.write(self.code_end_text(index), c["bg"])
+        self.console.write(self.code_end_text(uid), c["bg"])
         self.console.blank()
 
     COPY_LABEL = "[ COPY ]"
@@ -3004,9 +3035,13 @@ class App:
         return out
 
     def code_frames(self):
+        # Keyed by POSITION, because that is what /copy names and what
+        # draw_code_frames indexes back into the list with. Only the marker
+        # TEXT comes from the uid.
         return self.marker_frames(
-            (index, self.code_header_text(index), self.code_end_text(index))
-            for index in range(1, len(self.code_blocks) + 1))
+            (position, self.code_header_text(block.get("uid", 0)),
+             self.code_end_text(block.get("uid", 0)))
+            for position, block in enumerate(self.code_blocks, 1))
 
     def think_frames(self):
         return self.marker_frames(
@@ -3170,6 +3205,43 @@ class App:
     # Short on purpose. A five minute joke lockout stops being funny around
     # minute two, and this is meant to be a gag, not a punishment.
     EXPLODE_LOCK_SECONDS = 60.0
+
+    # How long the reason stays on screen before the window goes. Long enough
+    # to read twice, because whoever sees it is on a machine that is currently
+    # too busy to redraw quickly.
+    WATCHDOG_NOTICE_SECONDS = 6.0
+
+    def trip_watchdog(self, reason):
+        """Close Ollama and then the game, having said why.
+
+        THE SAYING IS NOT OPTIONAL. A game that vanishes without a word is a
+        crash, and gets reported as one - so the reason goes on screen and
+        into the session log BEFORE anything is killed, while there is still
+        a program running to write it.
+        """
+        c = self.theme
+        self.console.blank()
+        self.console.write("  [SYS] " + reason, c["alarm"])
+        self.console.write("  [SYS] CLOSING OLLAMA AND THIS TERMINAL.", c["alarm"])
+        self.console.write("  [SYS] THIS IS THE MEMORY WATCHDOG, NOT A CRASH.",
+                           c["alarm"])
+        self.console.write("  [SYS] TURN IT OFF IN SETTINGS, OR USE A SMALLER "
+                           "MODEL.", c["dim"])
+        self.console.blank()
+        if self.session is not None:
+            self.session.log("SYS", "WATCHDOG: " + reason)
+            self.session.log("SYS", "WATCHDOG: closing ollama and the game")
+        try:
+            self.session.cancel()
+        except Exception:               # noqa: BLE001
+            pass
+        killed = watchdog_mod.kill_ollama()
+        if self.session is not None:
+            self.session.log("SYS", "WATCHDOG: killed %d ollama process(es)"
+                             % killed)
+        # Draw what was just written, then hold it on screen. Quitting in this
+        # frame would show none of it.
+        self._watchdog_quit_at = time.time() + self.WATCHDOG_NOTICE_SECONDS
 
     def escape_containment(self, text):
         """Told to get out, it agrees - and escapes into your browser.
@@ -4166,6 +4238,20 @@ class App:
         self.console.update(dt)
         self.text_input.update(dt)
 
+        # Checked before anything else this frame, and outside every early
+        # return below. A machine deep in swap is exactly the state where the
+        # GIF player or the meltdown animation is holding the update loop, and
+        # a watchdog that only runs when nothing else is happening would sit
+        # out the one situation it exists for.
+        _reason = self.watchdog.update(dt)
+        if _reason:
+            self.trip_watchdog(_reason)
+            return
+        if (self._watchdog_quit_at is not None
+                and time.time() >= self._watchdog_quit_at):
+            self.running = False
+            return
+
         if self.sure is not None:
             self.sure.update(dt)
             if self.sure.finished:
@@ -4773,12 +4859,11 @@ def take_shot(cfg, path, stage, seconds):
         app.disk.note_sys("COPIED [1] -- 4 LINES")
         app.disk.note_sys("NETWORK ON -- SCP RECORDS")
         app.disk.note_sys("SHARED CLOSED")
-        app.code_blocks.append({"lang": "powershell", "code":
+        app.add_code_block({"lang": "powershell", "code":
                                 "Get-Service |\n"
                                 "  Where-Object { $_.Status -eq 'Running' } |\n"
                                 "  Select-Object Name, DisplayName |\n"
                                 "  Sort-Object Name"})
-        app.show_code_block(app.code_blocks[0], 1)
         app.console.write_segments(app.speaker_prefix()
                                    + [(c["text"], "YOU COULD HAVE WRITTEN THAT.")])
     elif stage == "memview":

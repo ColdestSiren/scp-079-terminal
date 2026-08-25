@@ -43,6 +43,15 @@ KEEP_ALIVE_CHOICES = [
 ]
 
 
+# The watchdog's two numbers. Nothing below 85% is offered: a machine can sit
+# at 80% quite happily for an hour, and a threshold that trips there would
+# close the game on someone who had no problem at all.
+WATCHDOG_PERCENT_CHOICES = [85, 90, 95, 98]
+# And nothing below 30 seconds, because loading a large model legitimately
+# pins memory for longer than that on a slow disk.
+WATCHDOG_SECOND_CHOICES = [30, 60, 120, 300]
+
+
 def _cycle(values, current, step):
     """Next/previous value, clamped rather than wrapped so holding a key does
     not silently loop past the end and back."""
@@ -111,6 +120,9 @@ class SettingsScreen:
             ("AUTO-LOG OBSERVATIONS", self._val_auto, self._set_auto),
             ("LOCK MEMORY FILES", self._val_lockfiles, self._set_lockfiles),
             ("TELL 079 YOUR NAME", self._val_login, self._set_login),
+            ("MEMORY WATCHDOG", self._val_wd, self._set_wd),
+            ("WATCHDOG LIMIT", self._val_wd_pct, self._set_wd_pct),
+            ("WATCHDOG PATIENCE", self._val_wd_secs, self._set_wd_secs),
             ("LET 079 TOUCH THIS PC", self._val_extended, self._set_extended),
             ("MINIGAMES", self._val_minigames, self._set_minigames),
             (None, None, None),
@@ -285,6 +297,42 @@ class SettingsScreen:
         self.message = (("IT WILL CALL YOU BY YOUR ACCOUNT NAME."
                          if m["share_login_name"]
                          else "IT WILL NOT BE TOLD WHO YOU ARE."), "dim")
+
+    # The memory watchdog. Three rows because it is three decisions: whether
+    # it runs at all, how full is too full, and how long it has to stay there.
+    # The last one is what stops model load tripping it, so it is not an
+    # advanced option to be hidden - it is the setting that makes the feature
+    # usable.
+    def _wd(self):
+        return self.cfg.setdefault("watchdog", {})
+
+    def _val_wd(self):
+        return "ON" if self._wd().get("enabled", False) else "OFF"
+
+    def _set_wd(self, step):
+        w = self._wd()
+        w["enabled"] = not w.get("enabled", False)
+        self.message = (("IT WILL CLOSE OLLAMA AND THE GAME IF MEMORY FILLS."
+                         if w["enabled"]
+                         else "NOTHING WILL BE CLOSED FOR YOU."), "dim")
+
+    def _val_wd_pct(self):
+        return "%d%% OF RAM" % int(self._wd().get("threshold_percent", 95))
+
+    def _set_wd_pct(self, step):
+        self._wd()["threshold_percent"] = _cycle(
+            WATCHDOG_PERCENT_CHOICES,
+            int(self._wd().get("threshold_percent", 95)), step)
+        self.message = ("LOWER TRIPS SOONER. 95% IS ALREADY VERY FULL.", "dim")
+
+    def _val_wd_secs(self):
+        return "%d SECONDS" % int(self._wd().get("seconds", 60))
+
+    def _set_wd_secs(self, step):
+        self._wd()["seconds"] = _cycle(
+            WATCHDOG_SECOND_CHOICES, int(self._wd().get("seconds", 60)), step)
+        self.message = ("A MODEL LOADING FILLS MEMORY BRIEFLY. ALLOW FOR IT.",
+                        "dim")
 
     def _val_lockfiles(self):
         return "ON" if self._mem().get("lock_files", False) else "OFF"

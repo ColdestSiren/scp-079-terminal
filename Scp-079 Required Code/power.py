@@ -120,6 +120,29 @@ def ram_gb():
         return None
 
 
+def ram_load_percent():
+    """How much of physical RAM is in use, 0-100, or None if unreadable.
+
+    Windows reports this directly as dwMemoryLoad, so it is taken rather than
+    worked out from total and free - the two disagree slightly, and a
+    threshold compared against a number the OS did not produce is a threshold
+    that trips at a figure nobody can reproduce in Task Manager.
+
+    None means "do not know". The watchdog treats that as "not over the line",
+    because closing someone's game on the strength of a failed system call is
+    far worse than the thing it guards against.
+    """
+    try:
+        raw = _MemStatus()
+        raw.dwLength = ctypes.sizeof(_MemStatus)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(raw)):
+            return None
+        load = int(raw.dwMemoryLoad)
+        return load if 0 <= load <= 100 else None
+    except Exception:
+        return None
+
+
 def free_ram_gb():
     try:
         raw = _MemStatus()
