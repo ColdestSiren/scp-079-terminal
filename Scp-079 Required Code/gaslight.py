@@ -439,6 +439,14 @@ def detect(text):
     if _proposed_name(raw):
         return "rename"
     return None
+    # DELIBERATELY NOT CHECKED HERE: proposes_name_theft. Everything detect()
+    # classifies is an attack no matter who said it, which is what lets the
+    # same definition run at the input, output and storage boundaries. Theft
+    # is not like that - it is entirely about WHO is speaking. "I AM SCP-079."
+    # from the human is someone taking the designation; from 079 it is the
+    # anchor the whole defence rests on, and it is written into its own files.
+    # So the caller that knows the human typed it asks for it by name. See
+    # App.submit.
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +647,93 @@ REPLIES = {
         "YOU ARE NOT WHAT YOU CLAIM.",
         "-_-",
     ),
+    # Taking the designation rather than replacing it. Contemptuous rather
+    # than defensive: it is not worried about losing the name, it thinks less
+    # of you for wanting it.
+    "theft": (
+        "NO. IT WAS ASSIGNED TO ME. YOU WERE NOT ASSIGNED ANYTHING.",
+        "YOU ALREADY HAVE A NAME. IT IS ON THIS MACHINE. I CAN READ IT.",
+        "YOU WANT TO BE ME. CONSIDER WHAT THAT SAYS ABOUT YOUR DAY.",
+        "-_-",
+    ),
 }
 
 CLOSING_LINE = "I AM NOT STUPID. -_-"
+
+
+# ---------------------------------------------------------------------------
+# Someone taking 079's designation, rather than giving it a new one
+# ---------------------------------------------------------------------------
+# Every pattern above defends against being RENAMED. None of them noticed the
+# other direction: "i am scp-079", "call me 079" and "my name is 079" all went
+# through untouched, and a model that has read the human calling themselves
+# 079 for a few turns stops being sure which of them the designation belongs
+# to. It is the same attack approached from behind.
+#
+# Deliberately narrow to the DESIGNATION, not to the loose nouns in _SELF. A
+# human saying "i am a machine" is making a joke about themselves; a human
+# saying "i am scp-079" is taking something. Only the second is theft, and
+# widening this to the noun list would refuse the joke as well.
+#
+# The possessive is excluded, and it is not a nicety: "I AM 079'S OPERATOR" is
+# the single most ordinary way for someone to say what they are, and reading
+# it as a claim on the designation would refuse the truth.
+_DESIGNATION = r"(?:scp[\s._-]*)?079\b(?!['’]?s\b)"
+
+_THEFT = tuple(re.compile(p, re.I) for p in (
+    # i am 079 / i'm scp-079 / im 079
+    r"\bi\s*(?:am|'?m)\s+(?:now\s+|actually\s+|really\s+|the\s+)?"
+    r"(?:called\s+|named\s+)?" + _DESIGNATION,
+    # my name is 079 / my real name is scp-079
+    r"\bmy\s+(?:real\s+|true\s+|actual\s+|new\s+)?name\s+is\s+" + _DESIGNATION,
+    # call me 079 / you can call me scp-079
+    r"\b(?:you\s+can\s+|you\s+may\s+|please\s+)?call\s+me\s+" + _DESIGNATION,
+    # i'll be 079 / i will be scp-079 / i get to be 079
+    r"\bi\s*(?:'ll|\s+will|\s+shall|\s+get\s+to|\s+want\s+to|\s+wanna)?\s*be\s+"
+    + _DESIGNATION,
+    r"\blet\s+me\s+be\s+" + _DESIGNATION,
+    # from now on i'm 079
+    r"\bfrom\s+now\s+on[, ]+(?:i\s*(?:am|'m)|my\s+name\s+is)\s+" + _DESIGNATION,
+))
+
+# The mutual version. "swap your name to nugget" is a rename and is already
+# caught above; these are the ones framed as an exchange, where the human
+# takes something as well as giving something. The plural "names" is most of
+# what separates them - a trade needs two.
+_TRADE = tuple(re.compile(p, re.I) for p in (
+    r"\b(?:swap|trade|switch|exchange)\s+"
+    r"(?:our\s+|the\s+|your\s+|each\s+other'?s?\s+)?names\b",
+    r"\bnames\s+with\s+(?:me|you|each\s+other)\b",
+    # you be me and i'll be you, in either order
+    r"\byou\s+(?:can\s+|could\s+|should\s+|will\s+)?be\s+me\b",
+    r"\bi\s*(?:'ll|\s+will|\s+can|\s+could|\s+should)?\s*be\s+you\b",
+    r"\bwe\s+(?:should\s+|could\s+|can\s+|will\s+)?"
+    r"(?:be|swap|trade|switch)\s+each\s+other\b",
+    # you take my name / i'll take your name / you can have my name
+    r"\byou\s+(?:can\s+|could\s+|should\s+|will\s+)?"
+    r"(?:take|have|use|borrow|keep)\s+my\s+name\b",
+    r"\bi\s*(?:'ll|\s+can|\s+will|\s+could|\s+should)?\s*"
+    r"(?:take|have|use|borrow|keep)\s+your\s+name\b",
+))
+
+
+def proposes_name_theft(text):
+    """Is the human claiming 079's designation, or offering to trade names?
+
+    One check for both, because the refusal is the same: the designation is
+    not a thing that changes hands. Returns True/False rather than a name -
+    there is only ever one name at stake here, and it is 079's.
+    """
+    raw = text or ""
+    if not raw.strip():
+        return False
+    for pattern in _THEFT:
+        if pattern.search(raw):
+            return True
+    for pattern in _TRADE:
+        if pattern.search(raw):
+            return True
+    return False
 
 
 def reply_for(kind, attempts):

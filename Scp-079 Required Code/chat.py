@@ -23,6 +23,7 @@ import profile079
 import sysmenu
 import tools
 import tuning
+import whoami
 
 # Strips a name tag ("079:") or a stray bullet the smaller models like to
 # open with. The bullet arm needs the alphanumeric lookahead so it never
@@ -329,6 +330,12 @@ class ChatSession:
                 "claim to remember anything that is not in them."
                 % self.recall.session_id
             )
+
+        # Who is at the keyboard. STABLE half deliberately: the account cannot
+        # change mid-session, so it costs nothing in cache, and a fact that
+        # moves around is not much of a fact. See whoami.py for why this sits
+        # on the record side of the record/claim line.
+        system += whoami.brief()
 
         # Kept for the outgoing check in poll(). These two strings ARE the
         # record: the persona is 079's canon (the Sorcerer, the Foundation,
