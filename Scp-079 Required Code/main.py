@@ -39,6 +39,7 @@ import boot as boot_mod
 import chat as chat_mod
 import clipboard
 import config as config_mod
+import credits
 import debugcmds
 import devtrap
 import theduck
@@ -786,13 +787,21 @@ class App:
             self.console.write("   PRIOR SESSIONS ON RECORD: %d" % self.recall.session_count(),
                                c["system"])
             self.console.blank()
-        # SCP-079 is not ours. CC BY-SA asks for attribution wherever the work
-        # is used, and a line in a README does not reach anyone who only ever
-        # plays the game. The menu is out-of-fiction already, so it costs the
-        # atmosphere nothing to say so here rather than mid-conversation.
-        self.console.write("   SCP-079 IS A FAN PROJECT. THE CHARACTER BELONGS TO",
-                           c["dim"])
-        self.console.write("   THE SCP WIKI COMMUNITY, UNDER CC BY-SA 3.0.", c["dim"])
+        # Both of these come from credits.py rather than being typed here.
+        # The menu is out-of-fiction already, so it costs the atmosphere
+        # nothing to say so here rather than mid-conversation, and the names
+        # sit in the source where 079 cannot reach them - it has a memory it
+        # can write to and a habit of being talked into writing whatever it
+        # is asked to. A credit it could reach is a credit it could change.
+        #
+        # The proper credits/about area is still to be designed; this is the
+        # line that already existed, now reading from the same place that
+        # screen will.
+        for _line in credits.ATTRIBUTION:
+            self.console.write("   " + _line, c["dim"])
+        for _name, _role in credits.rows():
+            self.console.write("   %s -- %s" % (_name.upper(), _role.upper()),
+                               c["dim"])
 
     def menu_status(self):
         c = self.theme

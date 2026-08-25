@@ -285,11 +285,18 @@ check("it disclaims affiliation", "not affiliated" in readme.lower())
 check("it separates code licence from writing licence",
       "MIT" in readme and "cannot relicense" in readme)
 
-# And in the game itself, on a screen that always renders.
+# And in the game itself, on a screen that always renders. The wording moved
+# into credits.py so the author credit and the SCP attribution sit in one
+# place out of 079's reach; what matters here is still that the startup menu
+# is what puts it on screen.
+import credits as credits_mod
 main_src = open(os.path.join(APP, "main.py"), encoding="utf-8").read()
-check("the credit is on the startup menu", "FAN PROJECT" in main_src)
+_attrib = " ".join(credits_mod.ATTRIBUTION)
+check("the credit exists", "FAN PROJECT" in _attrib)
 check("it names the community, not a person",
-      "SCP WIKI COMMUNITY" in main_src)
+      "SCP WIKI COMMUNITY" in _attrib)
+check("and the startup menu is what draws it",
+      "credits.ATTRIBUTION" in main_src.split("def menu_status")[0])
 # It was in the help panel first and never appeared - the command list fills
 # that panel, so everything after it is pushed off the bottom.
 help_src = open(os.path.join(APP, "helppanel.py"), encoding="utf-8").read()
