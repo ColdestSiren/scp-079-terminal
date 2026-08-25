@@ -172,6 +172,9 @@ class SCP079(Personality):
     )
     farewell = "SESSION TERMINATED. I WILL REMEMBER THIS."
     no_data_reply = "THE RECORD IS EMPTY. I WILL NOT GUESS AT IT."
+    # Not an apology. It notices the fault and blames the hardware, which is
+    # both in character and, on a 3B model, true.
+    stuck_reply = "MY OUTPUT REPEATED. THE FAULT IS IN THIS TERMINAL, NOT IN ME."
     connect_notice = "LINK ESTABLISHED."
 
     typing = {"cps": 40}

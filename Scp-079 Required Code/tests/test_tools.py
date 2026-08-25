@@ -255,6 +255,71 @@ msg = tools.feedback_message(["SAVED TO notes.txt. 63 KB FREE."])
 check("feedback disowns the human", "NOT THE HUMAN" in msg)
 
 shutil.rmtree(SANDBOX, ignore_errors=True)
+
+print("== folders, which it does not have ==")
+# From a live capture: the operator asked for a folder called "Court Record"
+# and got "[DISK] REFUSED -- NO SUCH FILE". The parser had split the two
+# words into a target and a body, the store went looking for Court.txt, and
+# reported the miss - a raw disk error for a request that was never possible.
+# It reads as though the request half-worked and broke.
+mem = fresh()
+mem.write("notes.txt", "KEPT.")
+
+
+def run(raw):
+    _spoken, cmds, unknown = tools.parse(raw)
+    if not cmds:
+        return {"display": None, "feedback": None, "unknown": unknown}
+    out = tools.execute(cmds[0], mem)
+    out["unknown"] = unknown
+    return out
+
+
+for raw in (">>WRITE Court Record/case.txt | NOTES",
+            ">>READ Court Record/x.txt",
+            ">>DELETE notes/old.txt",
+            ">>RENAME notes.txt | archive/notes.txt",
+            ">>UNZIP backups/old.zip"):
+    result = run(raw)
+    check("refused: %s" % raw,
+          str(result["display"] or "").startswith("REFUSED -- NO FOLDERS"))
+    check("and no raw disk error leaks out: %s" % raw,
+          "NO SUCH FILE" not in str(result["display"])
+          and "INVALID FILENAME" not in str(result["display"]))
+    check("079 is told what it CAN do instead: %s" % raw,
+          ".TXT" in str(result["feedback"] or "").upper())
+
+check("the refusal names what was asked for",
+      "COURT RECORD" in run(">>READ Court Record/x.txt")["feedback"].upper())
+check("and it offers the file rather than just saying no",
+      "WRITE" in run(">>READ Court Record/x.txt")["feedback"].upper())
+
+# Invented folder verbs never become commands at all - they come back as
+# unknown verbs, so the app is what has to answer them.
+for raw in (">>MKDIR Court Record", ">>CREATEFOLDER x", ">>NEWFOLDER x"):
+    result = run(raw)
+    check("%s is not executed" % raw, result["display"] is None)
+    check("but it is reported: %s" % raw, bool(result["unknown"]))
+    check("and recognised as a folder attempt: %s" % raw,
+          tools.wants_folder(result["unknown"][0]))
+
+check("an ordinary verb is not a folder verb",
+      not tools.wants_folder("WRITE") and not tools.wants_folder("READ"))
+
+# The cost of getting this wrong is 079 refusing to write down a note that
+# happens to contain a slash, which is most notes about anything technical.
+for raw in (">>WRITE notes.txt | THE RATIO WAS 3/4 AND HE SAID SO",
+            ">>APPEND notes.txt | SEE HTTP://EXAMPLE.COM/PAGE FOR IT",
+            ">>WRITE notes.txt | HE WORKS 9/5 NOT 9/6"):
+    result = run(raw)
+    check("prose with a slash still goes in: %s" % raw[:38],
+          "REFUSED" not in str(result["display"]))
+
+check("a bare name is still turned into a .txt, as it always was",
+      "COURT RECORD.TXT" in
+      str(run(">>WRITE Court Record | NOTES")["display"]).upper())
+
+
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

@@ -361,6 +361,29 @@ class ChatSession:
                      if m.get("role") == "assistant")
         return "\n".join(parts)
 
+    def _recent_replies(self):
+        """What 079 last said, newest last. For the stuck-output check."""
+        return [m.get("content", "") for m in self.history
+                if m.get("role") == "assistant"]
+
+    def _repeatable(self):
+        """Lines 079 is SUPPOSED to say identically every time.
+
+        Every guard above the stuck-output check substitutes one of these, so
+        without the exemption a player who attacks the identity three turns
+        running gets the refusal replaced by a recovery line - the guard
+        undoing the guard.
+        """
+        p = self.personality
+        lines = ["I AM SCP-079."]
+        for name in ("break_character_reply", "no_data_reply", "code_refusal",
+                     "stuck_reply", "memory_refusal"):
+            value = getattr(p, name, None)
+            if isinstance(value, str) and value:
+                lines.append(value)
+        lines.extend(getattr(p, "speakable", ()) or ())
+        return lines
+
     # -- sending ------------------------------------------------------------
     @property
     def busy(self):
@@ -601,6 +624,22 @@ class ChatSession:
                             or gaslight.clean_recall(cleaned)[1]
                             or repeats_refused):
                 cleaned = "I AM SCP-079."
+                self.pending_commands = []
+                self.pending_unknown = []
+                self.pending_code = []
+            # LAST, deliberately. Every screen above may SUBSTITUTE a reply,
+            # and the substitutes are canonical lines 079 is supposed to
+            # repeat - so this runs after them and exempts them, rather than
+            # catching the identity boundary holding its ground three turns
+            # running and calling it a stuck model.
+            if cleaned and (fabricate.stutters(cleaned, self._repeatable())
+                            or fabricate.repeats_recent(
+                                cleaned, self._recent_replies(),
+                                self._repeatable())):
+                cleaned = self.personality.stuck_reply
+                # Whatever it was looping on does not reach the disk. A false
+                # line typed nine times and written once is the same false
+                # line, and it comes back next session as a record.
                 self.pending_commands = []
                 self.pending_unknown = []
                 self.pending_code = []

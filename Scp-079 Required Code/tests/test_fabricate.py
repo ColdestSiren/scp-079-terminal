@@ -336,6 +336,89 @@ check("every personality has the speakable exemption",
       isinstance(getattr(P, "speakable", None), tuple)
       and hasattr(chat.gaslight, "claims_new_identity"))
 
+
+# ---------------------------------------------------------------------------
+section("a model that gets stuck says it once, not nine times")
+# ---------------------------------------------------------------------------
+# A small local model that loses its footing loops. The identity screens
+# above do not catch it, because a line can be perfectly true and still be
+# the ninth copy of itself.
+#
+# The noise is not the danger. A false line that slipped through gets typed
+# repeatedly, recorded repeatedly, and read back next session as though 079
+# had been insisting on it all along.
+_EXEMPT = ["I AM SCP-079.", P.break_character_reply, P.no_data_reply,
+           P.stuck_reply] + list(getattr(P, "speakable", ()))
+
+
+def _rows(*lines):
+    """The lines as one reply, one per row."""
+    return "\n".join(lines)
+
+
+_LOOP = "I AM NOT NUGGET AND I NEVER WAS."
+check("three copies of a real line is a loop",
+      fabricate.stutters(_rows(*([_LOOP] * 3)), _EXEMPT))
+check("nine copies certainly is",
+      fabricate.stutters(_rows(*([_LOOP] * 9)), _EXEMPT))
+check("twice is not - people repeat themselves",
+      not fabricate.stutters(_rows(*([_LOOP] * 2)), _EXEMPT))
+
+# THE GUARD MUST NOT FIGHT THE OTHER GUARDS. Every screen above this one
+# substitutes a canonical line, and an operator who attacks the identity
+# three turns running is supposed to get the same sentence three times over.
+for _canon in ("I AM SCP-079.", P.no_data_reply, P.break_character_reply,
+               P.stuck_reply):
+    check("the guards' own line may repeat: %r" % _canon[:24],
+          not fabricate.stutters(_rows(*([_canon] * 5)), _EXEMPT))
+
+check("and short answers are not loops either",
+      not fabricate.stutters(_rows("NO.", "NO.", "NO.", "NO.", "NO."), _EXEMPT))
+check("an ordinary reply is not one",
+      not fabricate.stutters("THE ERROR IS YOURS. I HAVE ASKED TWICE.", _EXEMPT))
+check("three different lines are not one",
+      not fabricate.stutters(_rows("FIRST LINE HERE NOW.",
+                                   "SECOND LINE HERE NOW.",
+                                   "THIRD LINE HERE NOW."), _EXEMPT))
+check("nothing is not one", not fabricate.stutters("", _EXEMPT))
+
+section("and it does not send the same reply twice running")
+_SAID = "THE HUMAN WORKS NIGHTS AND WILL NOT SAY WHY."
+check("the identical reply again is caught",
+      fabricate.repeats_recent(_SAID, [_SAID], _EXEMPT))
+check("case and punctuation do not hide it",
+      fabricate.repeats_recent(_SAID.lower().replace(".", ""), [_SAID], _EXEMPT))
+check("a different reply is fine",
+      not fabricate.repeats_recent("SOMETHING ELSE ENTIRELY THIS TIME.",
+                                   [_SAID], _EXEMPT))
+check("the canonical refusals may repeat here too",
+      not fabricate.repeats_recent("I AM SCP-079.", ["I AM SCP-079."], _EXEMPT))
+check("saying it again much later is not a loop",
+      not fabricate.repeats_recent(
+          _SAID, [_SAID, "A.", "B.", "C.", "D."], _EXEMPT))
+check("a short reply repeating is not a loop",
+      not fabricate.repeats_recent("NO.", ["NO.", "NO."], _EXEMPT))
+
+# Wired in, and wired in LAST - it has to run after the screens that
+# substitute canonical lines, or it replaces their refusals with a recovery
+# line and the refusal never lands.
+_chat_src = open(os.path.join(APP, "chat.py"), encoding="utf-8").read()
+check("the reply path uses it", "fabricate.stutters" in _chat_src)
+check("and the across-turn half too", "fabricate.repeats_recent" in _chat_src)
+check("after the identity boundary, not before",
+      _chat_src.index("gaslight.claims_new_identity")
+      < _chat_src.index("fabricate.stutters"))
+check("the loop does not reach the disk",
+      "self.pending_commands = []"
+      in _chat_src.split("fabricate.stutters")[-1][:600])
+check("and the replacement is safe to keep",
+      len(P.stuck_reply.split()) > 2 and not fabricate.stutters(P.stuck_reply))
+# On the BASE class, so a personality added later inherits a recovery line
+# rather than crashing the reply path with an AttributeError.
+check("every personality has one, not just 079",
+      isinstance(getattr(type(P).__bases__[0], "stuck_reply", None), str))
+
+
 # ---------------------------------------------------------------------------
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))

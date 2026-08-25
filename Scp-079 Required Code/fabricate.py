@@ -347,3 +347,68 @@ def unsupported_details(reply, record):
     if not claims_self_history(reply):
         return set()
     return _content_words(reply) - _content_words(record)
+
+
+# ---------------------------------------------------------------------------
+# Stuck output
+# ---------------------------------------------------------------------------
+# A small local model that loses its footing does not fall silent - it loops,
+# and the same sentence arrives ten times in one reply, or the same reply
+# arrives on three turns running. The identity screens above do not catch it,
+# because a line can be perfectly true and still be the ninth copy of itself.
+#
+# The danger is not the noise. It is that a false line which slipped through
+# gets typed out repeatedly, recorded repeatedly, and read back next session
+# as though 079 had been insisting on it. One line of recovery is safe to
+# record; nine copies of anything is not.
+#
+# Short answers are exempt on purpose. "NO.", "-_-" and "I AM SCP-079." are
+# what 079 says when it is refusing, and it refuses the same way every time -
+# that is the character, not a fault. Only substantial repetition counts.
+_SPAM_MIN_WORDS = 4        # below this it is a canonical short answer
+_SPAM_REPEATS = 3          # copies of one line inside a single reply
+_SPAM_WINDOW = 2           # how far back an identical whole reply counts
+
+
+def _normal(text):
+    """Case, punctuation and spacing removed. Only the words are left."""
+    return " ".join(_WORDS.findall(str(text or "").lower()))
+
+
+def _exempt_set(exempt):
+    """The lines that are allowed to repeat, normalised.
+
+    THE GUARD MUST NOT FIGHT THE OTHER GUARDS. "I AM SCP-079." is what the
+    identity boundary substitutes on every attempt, and a determined operator
+    gets it three turns running - that is the character holding, not a model
+    stuck in a loop, and replacing it with a recovery line would undo the
+    refusal it just made.
+    """
+    return frozenset(_normal(line) for line in exempt or () if _normal(line))
+
+
+def stutters(reply, exempt=()):
+    """Is this reply mostly the same line over and over?"""
+    allowed = _exempt_set(exempt)
+    lines = [_normal(line) for line in _SENTENCE.split(reply or "")]
+    lines = [line for line in lines
+             if len(line.split()) >= _SPAM_MIN_WORDS and line not in allowed]
+    if len(lines) < _SPAM_REPEATS:
+        return False
+    for line in set(lines):
+        if lines.count(line) >= _SPAM_REPEATS:
+            return True
+    return False
+
+
+def repeats_recent(reply, recent=(), exempt=()):
+    """Has 079 just said exactly this, word for word, in the last turn or two?
+
+    Whole replies only. Repeating a sentence across a long conversation is
+    ordinary; repeating the entire reply immediately is the model stuck on
+    one output.
+    """
+    now = _normal(reply)
+    if len(now.split()) < _SPAM_MIN_WORDS or now in _exempt_set(exempt):
+        return False
+    return now in [_normal(item) for item in list(recent)[-_SPAM_WINDOW:]]

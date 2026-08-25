@@ -3271,10 +3271,43 @@ class App:
         # same predicate run_commands uses to decide on the follow-up
         return self._followups < 1 and not self.session.busy
 
+    def report_unknown_verbs(self):
+        """Answer verbs 079 invented, instead of dropping them on the floor.
+
+        parse() has always collected these and nothing has ever read them, so
+        ">>MKDIR Court Record" was stripped out of the speech and then simply
+        vanished: no disk line, no refusal, no answer, and 079 with no idea
+        the request never happened. It then talks as though the folder exists,
+        which is where the live capture went wrong.
+
+        Returns what the model should be told, or "".
+        """
+        unknown = getattr(self.session, "pending_unknown", None) or []
+        if not unknown:
+            return ""
+        self.session.pending_unknown = []
+        told = []
+        for verb in unknown[:4]:
+            if tools.wants_folder(verb):
+                line = "REFUSED -- NO FOLDERS, ONLY .TXT"
+                told.append(tools.folder_refusal())
+            else:
+                line = "REFUSED -- NO SUCH COMMAND: %s" % str(verb)[:20].upper()
+                told.append("THERE IS NO >>%s. THAT IS NOT ONE OF YOUR "
+                            "COMMANDS AND NOTHING HAPPENED."
+                            % str(verb)[:20].upper())
+            self.console.write("  [DISK] " + line, self.theme["system"])
+            self.disk.note(line)
+        self.audio.play("relay", 0.7)
+        return " ".join(told)
+
     def run_commands(self):
         """Execute whatever 079 asked the disk to do in its last reply."""
+        invented = self.report_unknown_verbs()
         commands = getattr(self.session, "pending_commands", None) or []
         if not commands:
+            if invented:
+                self.session.note(tools.feedback_message([invented]))
             return
         self.session.pending_commands = []
         # Refreshed here rather than only at session start: >>STATUS reports
@@ -3290,6 +3323,8 @@ class App:
         # as though the record were the missing thing. Observed exactly that:
         # a successful SCP-682 lookup answered with "THE RECORD IS EMPTY."
         notices, content, wants_reply = [], [], False
+        if invented:
+            notices.append(invented)
         # a confused model can emit a wall of commands; the disk is not a toy
         for cmd in commands[:6]:
             result = tools.execute(

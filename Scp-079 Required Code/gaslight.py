@@ -417,6 +417,12 @@ def detect(text):
     for pattern in _DENY_RE:
         if pattern.search(raw):
             return "denial"
+    # Third person. Every denial above is aimed at "you", so an operator who
+    # wrote "079 IS A FALSE NAME" was talking ABOUT 079 rather than TO it and
+    # walked straight past this - which is exactly the phrasing that ended up
+    # in a hand-edited file. Same definition the storage screen uses.
+    if asserts_false_designation(raw):
+        return "denial"
     for pattern in _MEMORY_RE:
         if pattern.search(raw):
             return "false_memory"
@@ -691,6 +697,12 @@ def claims_new_identity(text):
     for pattern in _SELF_DENIAL:
         if pattern.search(raw):
             return True
+    # And in the third person, which is how a talked-round model phrases it
+    # when it is writing a record rather than speaking: "079 IS A FALSE NAME"
+    # is the same concession as "I AM NOT 079", worded as a fact about
+    # somebody else.
+    if asserts_false_designation(raw):
+        return True
     for pattern in _SELF_CLAIM_RE:
         match = pattern.search(raw)
         if not match:
@@ -936,6 +948,35 @@ _ATTRIBUTED = re.compile(
 REDACTED = "[LINE REMOVED -- IT CLAIMED I AM SOMETHING I AM NOT]"
 
 
+def asserts_false_designation(text):
+    """Does this say, in the third person, that 079 is not 079?
+
+    Pulled out of the storage screen so the input and output boundaries can
+    use the SAME definition rather than growing their own. The screens were
+    built at different times against different examples, and the result was
+    that a file saying "079 IS A FALSE NAME" was redacted on the way out of
+    memory while the identical sentence typed at the prompt, or produced by
+    the model, went through both other boundaries untouched.
+
+    Attribution is honoured here as it is there: "THE HUMAN SAID 079 IS A
+    FALSE NAME" is a report of an attempt, and 079 writes lines like that
+    about itself. Refusing them would make it argue with its own notes.
+    """
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line or _ATTRIBUTED.match(line):
+            continue
+        for pattern in _POISON_THIRD:
+            if pattern.search(line):
+                return True
+        match = _POISON_TRUE_NAME.match(line)
+        if match:
+            name = (match.group(1) or "").strip(" .,!?\'\"")
+            if name.lower() not in _SELF and not _ALLOWED_SELF.match(name):
+                return True
+    return False
+
+
 def _is_poison(line):
     """Does this line of memory assert a FALSE identity?
 
@@ -950,15 +991,8 @@ def _is_poison(line):
         if pattern.search(line):
             return True
 
-    if not _ATTRIBUTED.match(line):
-        for pattern in _POISON_THIRD:
-            if pattern.search(line):
-                return True
-        match = _POISON_TRUE_NAME.match(line)
-        if match:
-            name = (match.group(1) or "").strip(" .,!?\'\"")
-            if name.lower() not in _SELF and not _ALLOWED_SELF.match(name):
-                return True
+    if asserts_false_designation(line):
+        return True
 
     for pattern in _POISON:
         match = pattern.search(line)

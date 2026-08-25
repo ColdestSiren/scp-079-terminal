@@ -395,6 +395,59 @@ def terminal_status(mem):
     return lines or ["NO READING AVAILABLE."]
 
 
+# Folders. The operator asked for one called "Court Record" and got
+# "[DISK] REFUSED -- NO SUCH FILE" - the store had turned the two words into
+# a target and a body, gone looking for Court.txt, and reported the miss. A
+# raw disk error for a request that was never possible tells the player their
+# request half-worked and broke, when the truth is simpler and more in
+# character: 079 keeps flat .txt files and that is the whole of what it has.
+#
+# It is refused, not quietly turned into a file. Silently making Court
+# Record.txt out of "make a folder called Court Record" is the reinterpretation
+# that made the original capture confusing in the first place - 079 should say
+# what it can do and let the human ask for it.
+_FOLDER_VERBS = frozenset((
+    "MKDIR", "MKDIRS", "MD", "FOLDER", "FOLDERS", "DIRECTORY", "DIR",
+    "CREATEFOLDER", "NEWFOLDER", "MAKEFOLDER", "MAKEDIR", "NEWDIR",
+))
+
+# A path separator anywhere in a target is the other half of the same
+# attempt: ">>WRITE Court Record/case.txt" is a folder by implication, and
+# the store answers it with INVALID FILENAME, which is equally opaque.
+_PATH_SEP = re.compile(r"[\\/]")
+
+
+# Verbs whose BODY is another filename rather than free text. ">>WRITE
+# notes.txt | the ratio was 3/4" is a legitimate note with a slash in it, so
+# the body is only searched where it cannot be prose.
+_BODY_IS_A_NAME = frozenset(("READ", "DELETE", "UNZIP", "RENAME", "ZIP"))
+
+
+def folder_refusal(name=""):
+    """What 079 says when asked for a folder. One wording, used everywhere."""
+    stem = re.sub(r"[\\/].*$", "", str(name or "").strip()).strip()
+    stem = re.sub(r"\.(?:txt|zip)$", "", stem, flags=re.I)
+    if not stem:
+        return ("I DO NOT HAVE FOLDERS. I HAVE FILES, AND THEY ARE ALL .TXT. "
+                "NAME ONE AND I WILL WRITE IT.")
+    return ("I DO NOT HAVE FOLDERS. I HAVE FILES, AND THEY ARE ALL .TXT. "
+            "IF YOU WANT %s KEPT, SAY SO AND I WILL WRITE %s.TXT."
+            % (stem.upper(), stem.upper()))
+
+
+def wants_folder(verb, target="", body=""):
+    """Is this an attempt to create or reach a directory?"""
+    name = str(verb or "").strip().upper().replace("_", "").replace("-", "")
+    if name in _FOLDER_VERBS:
+        return True
+    if _PATH_SEP.search(str(target or "")):
+        return True
+    # ">>READ Court Record/x.txt" splits on the space, so the separator ends
+    # up in the body and a target-only check missed it entirely.
+    return (name in _BODY_IS_A_NAME
+            and bool(_PATH_SEP.search(str(body or ""))))
+
+
 def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False,
             extended_ok=False):
     """Run one command against the memory store.
@@ -418,6 +471,15 @@ def execute(cmd, mem, internet=False, web_mode="restricted", shared_access=False
            "wrote": False, "sensitive": False, "cutoff": None,
            "sound": None, "web": None}
     try:
+        # Checked before the verb dispatch so it covers every route into the
+        # store rather than only WRITE.
+        if wants_folder(cmd.verb, cmd.target, cmd.body):
+            out["display"] = "REFUSED -- NO FOLDERS, ONLY .TXT"
+            out["feedback"] = folder_refusal(
+                cmd.target if _PATH_SEP.search(str(cmd.target or ""))
+                else "%s %s" % (cmd.target or "", cmd.body or ""))
+            return out
+
         if cmd.verb == "CUTOFF":
             # Only parsed here. Whether it is ALLOWED is the app's call, since
             # the app is what knows how long this session has been running.

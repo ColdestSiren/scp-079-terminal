@@ -47,6 +47,11 @@ class Personality:
     # said when a read/lookup returned nothing usable, so that a withheld
     # guess does not leave the entity silent for a whole exchange
     no_data_reply = "NOTHING CAME BACK."
+    # Said INSTEAD of a reply that had got stuck repeating itself. One line,
+    # and it must be safe to keep: it goes into history like any other reply,
+    # so the next turn reads a single sentence rather than nine copies of
+    # whatever the model was looping on.
+    stuck_reply = "REPEATED OUTPUT DISCARDED."
     connect_notice = "LINK ESTABLISHED."
 
     typing = {}
