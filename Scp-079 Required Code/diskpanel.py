@@ -51,6 +51,26 @@ class DiskPanel:
         itself, not part of the conversation, and interleaving it with 079's
         replies made both harder to read.
         """
+        # Four identical MEMORY VIEW CLOSED lines is what the panel actually
+        # showed in play, and it reads as a bug in the close path rather than
+        # as the player having opened the viewer four times. Each close is
+        # real; the panel only has four rows, so a repeated action crowds
+        # everything else off it and tells you nothing new in exchange.
+        #
+        # Collapsed rather than dropped: the count is the honest version, and
+        # it keeps the flash, so a repeat still registers as something that
+        # just happened.
+        if self.notices:
+            head = self.notices[0]
+            base, _, tail = head.rpartition(" x")
+            if head == text:
+                self.notices[0] = text + " x2"
+                self._sys_flash = 0.55
+                return
+            if base == text and tail.isdigit():
+                self.notices[0] = "%s x%d" % (text, int(tail) + 1)
+                self._sys_flash = 0.55
+                return
         self.notices.insert(0, text)
         del self.notices[NOTICES:]
         self._sys_flash = 0.55

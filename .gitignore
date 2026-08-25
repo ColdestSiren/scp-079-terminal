@@ -43,6 +43,7 @@ Add later/
 # Personal tooling, not part of what people download. Publish.bat is the
 # one-click commit-and-push helper; it has no business being in the release.
 Publish.bat
+.publish-last.txt
 
 # Screenshots and captures from play sessions. These are how bugs get
 # reported and they are useful to keep locally, but they show the desktop,
@@ -100,6 +101,7 @@ $RECYCLE.BIN/
 
 # One-time gag marker. Must NOT ship, or it is already spent.
 Scp-079 Required Code/duck.txt
+Scp-079 Required Code/parroted.txt
 
 # Local bug-report screenshots. Never publish.
 Issue/

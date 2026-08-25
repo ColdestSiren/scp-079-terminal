@@ -353,6 +353,14 @@ class MemoryStore:
                 text = handle.read(self.PREVIEW_CHARS * 3)
         except OSError:
             return ""
+        # Previews are inserted into the model's system brief, so they need
+        # the same screening as an explicit READ.  Otherwise editing the
+        # first line of an ordinary note bypasses read() entirely.
+        import gaslight
+        if self.identity_text and self._is_identity_canonical(path):
+            text = self.identity_text
+        else:
+            text, _ = gaslight.clean_recall(text)
         text = " ".join(text.split())
         if len(text) > self.PREVIEW_CHARS:
             text = text[:self.PREVIEW_CHARS].rsplit(" ", 1)[0] + "..."
@@ -559,7 +567,21 @@ class MemoryStore:
         try:
             with zipfile.ZipFile(path) as zf:
                 members = [m for m in zf.namelist() if m.lower().endswith(TEXT_EXT)]
-                needed = sum(zf.getinfo(m).file_size for m in members)
+                candidates = []
+                seen = set()
+                for member in members:
+                    safe, dest = self._resolve(os.path.basename(member))
+                    folded = safe.lower()
+                    if folded in seen:
+                        raise StoreError("ARCHIVE CONTAINS DUPLICATE FILE: %s" % safe)
+                    seen.add(folded)
+                    if os.path.exists(dest):
+                        raise StoreError("REFUSED. %s ALREADY EXISTS." % safe)
+                    raw = zf.read(member)
+                    body = raw.decode("utf-8", errors="replace")
+                    self._refuse_identity_write(safe, body)
+                    candidates.append((safe, dest, body, len(raw)))
+                needed = sum(item[3] for item in candidates)
                 # the archive itself goes away, so its bytes come back
                 if self.usage() - os.path.getsize(path) + needed > self.quota:
                     raise QuotaError(
@@ -567,10 +589,9 @@ class MemoryStore:
                         (human_bytes(needed),
                          human_bytes(self.free() + os.path.getsize(path))))
                 restored = []
-                for member in members:
-                    safe, dest = self._resolve(os.path.basename(member))
-                    with zf.open(member) as src, open(dest, "wb") as out:
-                        out.write(src.read())
+                for safe, dest, body, _ in candidates:
+                    self._write_raw(dest, body)
+                    memlock.hold(dest)
                     self._manifest_put(safe, dest)
                     restored.append(safe)
         except zipfile.BadZipFile:

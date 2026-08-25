@@ -18,6 +18,29 @@ who was told a secret and could not resist trying it.
 
 import getpass
 
+import pygame
+
+# The shortcut itself, in one place, because it is now something the game
+# TELLS you rather than something you had to find. A hint that names the
+# wrong keys is worse than no hint, and two copies of "CTRL+F12" - one in the
+# handler, one in the text - is exactly how that happens.
+#
+# The label is derived from the binding rather than typed out beside it, so
+# rebinding the key rewrites every place it is shown. pygame.key.name needs
+# the module initialised, hence a function rather than a constant.
+BYPASS_KEY = pygame.K_F12
+BYPASS_MOD = pygame.KMOD_CTRL
+
+
+def bypass_label():
+    return "CTRL+" + pygame.key.name(BYPASS_KEY).upper()
+
+
+def pressed_bypass(event):
+    """Is this key event the escape hatch?"""
+    return event.key == BYPASS_KEY and bool(event.mod & BYPASS_MOD)
+
+
 # The account the shortcut belongs to. Overridable in config for testing on
 # another machine, because being locked out of your own game for an hour
 # while developing it would be a genuinely bad afternoon.

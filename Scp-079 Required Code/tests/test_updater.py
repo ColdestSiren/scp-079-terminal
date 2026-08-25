@@ -422,31 +422,47 @@ section("a 404 is diagnosed, not guessed at")
 _real_open = updater._open
 
 
-def fake_open(pattern_404):
+def fake_open(pattern_404, tags=None):
     """Every url containing pattern_404 raises NotFound; others succeed."""
     class Fake:
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def read(self, *a): return b'{"tag_name": "v0.0.1", "assets": []}'
+        def read(self, *a): return self.body
         headers = {}
+
+        def __init__(self, body=b'{"tag_name": "v0.0.1", "assets": []}'):
+            self.body = body
 
     def opener(url, accept=None):
         if pattern_404 in url:
             raise updater.NotFound("NOT FOUND")
+        if "/tags?" in url:
+            import json
+            return Fake(json.dumps(tags if tags is not None else []).encode("utf-8"))
         return Fake()
     return opener
 
 
 cfg404 = {"updates": {"repo": "someone/thing"}}
 try:
-    # releases/latest 404s but the repo itself resolves -> genuinely no release
+    # releases/latest 404s and there are no tags either
     updater._open = fake_open("/releases/")
     try:
         updater.check(cfg404)
         check("no-release case reported", False)
     except updater.UpdateError as exc:
         check("a real repo with no release says so",
-              "NO RELEASES PUBLISHED YET" in str(exc))
+              "NO VERSION TAGS PUBLISHED YET" in str(exc))
+
+    updater._open = fake_open("/releases/", tags=[
+        {"name": "v9.8.7", "zipball_url": "https://api.github.com/archive.zip"},
+        {"name": "not-a-version", "zipball_url": "https://api.github.com/no.zip"},
+    ])
+    info = updater.check(cfg404)
+    check("a version tag is offered when no Release exists",
+          info and info["tag"] == "v9.8.7")
+    check("the generated tag archive is downloadable",
+          info and info["url"].endswith("archive.zip"))
 
     # the repo itself 404s -> the address is wrong, not the timing
     updater._open = fake_open("/repos/")

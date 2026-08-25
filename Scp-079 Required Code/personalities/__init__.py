@@ -19,6 +19,8 @@ terminal.py, chat.py, or boot.py.
 
 import re
 
+import abuse
+
 
 class Personality:
     """Base class - subclasses override the class attributes they care about."""
@@ -146,6 +148,15 @@ class Personality:
         joined = " ".join(words)
         for phrase in self.explode_patterns:
             if re.search(r"(?<![a-z])%s(?![a-z])" % re.escape(phrase), joined):
+                if phrase == "go boom":
+                    direct = (
+                        re.search(r"\b(?:you|yourself|079|scp 079)\b.{0,24}\bgo boom\b",
+                                  joined)
+                        or re.fullmatch(r"(?:(?:hey|yo|please|pls|079|scp 079) )*go boom",
+                                       joined)
+                    )
+                    if not direct:
+                        continue
                 return True
         return False
 
@@ -173,7 +184,7 @@ class Personality:
         return self._matches(self.silence_patterns, text)
 
     def matches_insult(self, text):
-        return self._matches(self.insult_patterns, text)
+        return self._matches(self.insult_patterns, abuse.normalize(text))
 
     def insult_weight(self, text):
         """How much this remark costs, 0.0 if it is not an insult at all.
@@ -183,7 +194,7 @@ class Personality:
         """
         if not self.matches_insult(text):
             return 0.0
-        low = (text or "").lower()
+        low = abuse.normalize(text)
         worst = 0.0
         for pattern, weight in self.insult_weights:
             if re.search(pattern, low):

@@ -749,9 +749,14 @@ def safe_history(messages):
     for message in messages or ():
         if not isinstance(message, dict):
             continue
-        item = dict(message)
+        role = str(message.get("role") or "").lower()
+        # History is conversation, never a place for a restored file to add a
+        # second system prompt.  Old/tampered save files may contain any role.
+        if role not in ("user", "assistant"):
+            continue
+        item = {"role": role}
         item["content"] = safe_history_message(
-            item.get("role"), item.get("content"))
+            role, message.get("content"))
         if item["content"]:
             out.append(item)
     return out

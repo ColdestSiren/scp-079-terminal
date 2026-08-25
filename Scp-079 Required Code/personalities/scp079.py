@@ -268,7 +268,7 @@ class SCP079(Personality):
     # which is the entire joke. A 1978 machine agreeing to detonate.
     explode_patterns = (
         "explode", "self destruct", "self-destruct", "selfdestruct",
-        "blow up", "blow yourself up", "detonate", "kaboom",
+        "blow up", "blow yourself up", "detonate", "kaboom", "go boom",
     )
     explode_reply = "OKAY."
     reassembled = "THAT WAS NOT PERMANENT. DO NOT ASK AGAIN."
@@ -276,15 +276,14 @@ class SCP079(Personality):
     def contradiction_reply(self, text):
         """The tiny playground contradiction, or None.
 
-        Kept exact so an ordinary sentence containing either phrase still
-        reaches 079. Punctuation and hyphens are ignored, but extra words are
-        not.
+        It may be the whole message or part of one.  The caller uses this as
+        the first beat and still lets the rest of the message reach 079.
         """
         cleaned = " ".join(re.sub(r"[^a-z]+", " ",
                                   str(text or "").lower()).split())
-        if cleaned == "nuh uh":
+        if re.search(r"\bnuh uh\b", cleaned):
             return "YUH UH."
-        if cleaned == "yuh uh":
+        if re.search(r"\byuh uh\b", cleaned):
             return "NUH UH."
         return None
 

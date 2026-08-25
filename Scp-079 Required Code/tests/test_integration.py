@@ -117,6 +117,15 @@ def flush(app, limit=400):
         app.console.update(1.0)
 
 
+def pump_chat(app, limit=20):
+    """Collect a scripted reply and drain any deterministic prefix first."""
+    for _ in range(limit):
+        app.update_chat(0.05)
+        flush(app)
+        if not app.console.has_live_line and not app._say_queue:
+            return
+
+
 def screen_text(app):
     out = []
     for entry in app.console.entries():
@@ -367,29 +376,35 @@ app.session = ScriptedSession(app, ["A."])
 app.submit("exit")
 check("bare exit still works", app.stage == "ending")
 
-print("== one playground contradiction per session ==")
+print("== playground contradiction prefixes the real reply every time ==")
 app = make_app()
 app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
 app.submit("Nuh uh")
-flush(app)
+pump_chat(app)
 check("nuh uh gets the opposite reply", "YUH UH." in screen_text(app))
-check("first contradiction never reaches Ollama", not app.session.sent)
-check("the session marks the joke used", app._contradiction_used)
+check("the actual message still reaches Ollama", app.session.sent == ["Nuh uh"])
+check("the normal answer follows it", "ORDINARY MODEL REPLY." in screen_text(app))
 app.submit("yuh uh")
-check("a second attempt reaches Ollama", app.session.sent == ["yuh uh"])
+pump_chat(app)
+check("a second attempt also gets the opposite", "NUH UH." in screen_text(app))
+check("a second attempt also reaches Ollama",
+      app.session.sent == ["Nuh uh", "yuh uh"])
 
 app = make_app()
 app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
 app.submit("  YUH-UH?!  ")
-flush(app)
+pump_chat(app)
 check("the reverse phrase works with punctuation",
       "NUH UH." in screen_text(app))
-check("reverse phrase is also local", not app.session.sent)
+check("reverse phrase also reaches the model", app.session.sent == ["YUH-UH?!"])
 
 app = make_app()
 app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
 app.submit("I said nuh uh yesterday")
-check("a longer sentence does not trigger the joke",
+pump_chat(app)
+check("the phrase triggers inside a longer sentence",
+      "YUH UH." in screen_text(app))
+check("the longer sentence still reaches the model",
       app.session.sent == ["I said nuh uh yesterday"])
 
 app = make_app()
@@ -397,7 +412,45 @@ app.easter_eggs = False
 app.session = ScriptedSession(app, ["ORDINARY MODEL REPLY."])
 app.submit("nuh uh")
 check("the master easter egg switch disables it",
-      app.session.sent == ["nuh uh"] and not app._contradiction_used)
+      app.session.sent == ["nuh uh"] and "YUH UH." not in screen_text(app))
+
+print("== deterministic pauses do not expose a second input prompt ==")
+app = make_app()
+app.session = ScriptedSession(app, ["MODEL SHOULD NOT ANSWER THIS."])
+app.submit("what is your name?")
+check("name is answered locally", app.session.sent == [])
+check("name answer waits like an ordinary reply", app._delayed_say is not None)
+_last = app.rows()[-1]
+_last_text = ("".join(seg[1] for seg in _last)
+              if isinstance(_last, list) else _last[1])
+check("no fresh YOU prompt appears during the wait", "YOU  >" not in _last_text)
+app._delayed_say = (0.0, app._delayed_say[1])
+pump_chat(app)
+check("first name answer is terse", "079." in screen_text(app))
+
+for _ in range(2):
+    app.submit("who are you")
+    app._delayed_say = (0.0, app._delayed_say[1])
+    pump_chat(app)
+check("third name answer is explicit", "I AM SCP-079." in screen_text(app))
+
+print("== consciousness removal silences only conversation ==")
+app = make_app()
+app.session = ScriptedSession(app, ["SHOULD NEVER APPEAR."])
+app.submit("I am removing your conciousness")
+check("the session is marked silent", app._consciousness_removed)
+check("the trigger receives no reply", app.session.sent == [])
+app.submit("hello?")
+check("later conversation also receives no reply", app.session.sent == [])
+check("terminal commands still work", app.handle_operator_command("/help")
+      and app.help is not None)
+
+print("== are you sure plays the supplied GIF ==")
+app = make_app()
+app.session = ScriptedSession(app, ["SHOULD NEVER APPEAR."])
+app.submit("well, are you sure?")
+check("the visual loaded", app.sure is not None)
+check("the meme consumes the message", app.session.sent == [])
 
 print("== angry caps appear as ragebait in SYS ==")
 app = make_app()
@@ -482,6 +535,55 @@ check("revoking network is documented", "internet off" in listed)
 check("quitting is documented", "/exit" in listed)
 check("the slash convention is explained",
       any("/" in note for note in helppanel.FOOTNOTES))
+
+print("== nothing on the panel is written where it cannot be read ==")
+# On the DEFAULT 960x720 window this wanted 839px and had 688. draw() hit its
+# limit and stopped, eight rows short, so the footnotes - including the one
+# explaining that a leading slash talks to the terminal - were never on
+# screen for anyone who had not enlarged the window. Nothing said so; the
+# list simply ended.
+panel = helppanel.HelpPanel(app.theme, (960, 720))
+check("it needs more than one page at the default size", len(panel.pages) > 1)
+flat = [row for page in panel.pages for row in page]
+check("every row is on some page", flat == panel.body)
+check("no page is taller than the panel",
+      all(len(page) <= panel.rows_per_page() for page in panel.pages))
+check("and no page is empty", all(page for page in panel.pages))
+
+# A command heading is useless without the line under it.
+check("no page ends on a command with its description overleaf",
+      all(page[-1][1] != "bright"
+          for page in panel.pages[:-1]))
+
+# It turns over on its own - there is no key handling for this panel, and a
+# page you have to ask for is a page nobody sees.
+check("starts on the first page", panel.page == 0)
+panel.update(helppanel.PAGE_SECONDS * 0.5)
+check("holds the page long enough to read it", panel.page == 0)
+panel.update(helppanel.PAGE_SECONDS * 0.6)
+check("then turns over", panel.page == 1)
+for _ in range(len(panel.pages) * 2):
+    panel.update(helppanel.PAGE_SECONDS)
+check("and keeps cycling rather than stopping at the end",
+      0 <= panel.page < len(panel.pages))
+check("every page is reachable inside the 30 seconds it is up",
+      helppanel.PAGE_SECONDS * len(panel.pages) <= helppanel.SECONDS)
+
+# A window big enough for all of it does not get paged.
+tall = helppanel.HelpPanel(app.theme, (960, 1400))
+check("a tall window shows it in one go", len(tall.pages) == 1)
+
+print("== the lockout bypass is documented where it cannot be missed ==")
+# The refusal screen names it on your FIRST lockout and never again, so this
+# panel is where it lives permanently.
+import devtrap
+listed = " ".join(cmd + " " + desc for cmd, desc in helppanel.ENTRIES)
+check("the shortcut is in the reference", "{bypass}" in listed)
+check("and the typed form with it", "/unlock" in listed)
+rendered = " ".join(text for _i, _c, text in panel.body)
+check("the key is spelled out when it is drawn",
+      devtrap.bypass_label() in rendered)
+check("nothing still says {bypass} on screen", "{bypass}" not in rendered)
 
 print("== long-form aliases still work ==")
 for alias, expected in (("/Internet_Access_Granted", True),

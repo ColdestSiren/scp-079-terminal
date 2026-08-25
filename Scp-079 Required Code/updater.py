@@ -1,4 +1,4 @@
-"""Update check and install, from GitHub releases only.
+"""Update check and install, from GitHub releases or version tags.
 
 WHAT THIS DOES: asks GitHub for the newest release of one specific repo,
 compares its tag against version.VERSION, and - only if the player says yes -
@@ -26,6 +26,11 @@ code in any hobby project:
     this module is not imported there. Updating is the operator's decision
     and 079 is not consulted, which matters rather a lot given what it
     spends its time asking for.
+
+The check prefers a GitHub Release because it carries notes and optional
+assets. If there is no Release, it falls back to the newest semantic version
+tag and GitHub's source zip for that tag. This matches the project's publish
+workflow: ordinary main pushes are quiet; a version tag announces an update.
 
 The check runs on a worker thread and any failure is silent by design: no
 network, no GitHub, a rate limit, a repo that does not exist yet - none of
@@ -255,6 +260,51 @@ def _explain_missing(name):
         return "NO RELEASES PUBLISHED YET"
 
 
+def _read_json(url):
+    with _open(url) as response:
+        try:
+            return json.loads(response.read(MAX_API_BYTES).decode("utf-8", "replace"))
+        except Exception:
+            raise UpdateError("GITHUB RESPONSE UNREADABLE")
+
+
+def _latest_tag(name, cfg):
+    """Newest semantic version tag, shaped like a release response."""
+    url = "https://api.github.com/repos/%s/tags?per_page=100" % name
+    try:
+        rows = _read_json(url)
+    except NotFound:
+        raise UpdateError(_explain_missing(name))
+    if not isinstance(rows, list):
+        raise UpdateError("GITHUB TAG RESPONSE UNREADABLE")
+
+    allow_pre = bool((cfg.get("updates") or {}).get("allow_prerelease", False))
+    candidates = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tag = str(row.get("name") or "").strip()
+        parsed = version.parse(tag)
+        if parsed is None or (parsed[1] and not allow_pre):
+            continue
+        # GitHub returns newest-by-commit, not necessarily highest version.
+        key = parsed[0] + (0,) * max(0, 8 - len(parsed[0]))
+        candidates.append((key, tag, row))
+    if not candidates:
+        raise UpdateError("NO VERSION TAGS PUBLISHED YET")
+    _, tag, row = max(candidates, key=lambda item: item[0])
+    return {
+        "tag_name": tag,
+        "name": "VERSION TAG %s" % tag,
+        "body": "",
+        "zipball_url": row.get("zipball_url"),
+        "assets": [],
+        "draft": False,
+        "prerelease": bool(version.parse(tag)[1]),
+        "published_at": "",
+    }
+
+
 def check(cfg):
     """Look for a newer release. Returns an info dict, or None if current.
 
@@ -267,17 +317,9 @@ def check(cfg):
 
     url = "https://api.github.com/repos/%s/releases/latest" % name
     try:
-        response = _open(url)
+        data = _read_json(url)
     except NotFound:
-        # "No releases yet" and "no such repo" arrive as the same 404, and
-        # telling someone to wait for a release from a repo that does not
-        # exist is worse than saying nothing. Ask which it was.
-        raise UpdateError(_explain_missing(name))
-    with response:
-        try:
-            data = json.loads(response.read(MAX_API_BYTES).decode("utf-8", "replace"))
-        except Exception:
-            raise UpdateError("GITHUB RESPONSE UNREADABLE")
+        data = _latest_tag(name, cfg)
     _stamp_check()
 
     if data.get("draft"):

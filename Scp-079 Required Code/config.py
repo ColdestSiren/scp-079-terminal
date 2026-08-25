@@ -239,9 +239,10 @@ DEFAULTS = {
         # keeps its own files busy. A courtesy lock, not protection:
         # closing the game releases everything, and the tamper detection
         # is what actually handles editing behind its back.
-        # OFF by default. A file that will not open is surprising if you
-        # did not ask for it.
-        "lock_files": False,
+        # ON by default: external readers still work, but writes are refused
+        # until the terminal closes. The setting remains available for a
+        # player who explicitly wants to edit live files.
+        "lock_files": True,
         # Lets 079 trigger a fixed, hardcoded list of harmless actions
         # on the machine - open a URL, open Paint. It sends a NAME from
         # that list and nothing else: no path, no URL, no argument. The
@@ -341,7 +342,7 @@ def _deep_merge(base, override):
 # So: bad defaults are corrected here, and ONLY when the saved value still
 # matches exactly what the old build wrote. Anything the player deliberately
 # changed does not match, and is left alone.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _MIGRATIONS = {
     # (path, value_written_by_the_old_build, corrected_value, why)
@@ -367,6 +368,11 @@ _MIGRATIONS = {
          "insults are weighted now (0.5 to 1.6 rather than a flat 1.0), so "
          "the old threshold of 4 would have cut the conversation off even "
          "faster than before instead of ramping more gently"),
+    ],
+    5: [
+        (("memory", "lock_files"), False, True,
+         "memory files are share-read locked by default while the terminal "
+         "is running; closing it releases every handle"),
     ],
 }
 

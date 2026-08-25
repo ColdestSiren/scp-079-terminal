@@ -8,6 +8,8 @@ the personality, an identity attack, or clear frustration language.
 
 import re
 
+import abuse
+
 
 _STRONG = tuple(re.compile(pattern, re.I) for pattern in (
     r"\b(?:fuck|fucking|shit|bitch|bastard|asshole|cunt|idiot|moron)\b",
@@ -41,7 +43,8 @@ def is_angry(text, hostile_weight=0.0, identity_attack=False):
         return False
     if float(hostile_weight or 0.0) > 0.0 or identity_attack:
         return True
-    if any(pattern.search(raw) for pattern in _STRONG):
+    classified = abuse.normalize(raw)
+    if any(pattern.search(classified) for pattern in _STRONG):
         return True
     cues = sum(1 for pattern in _FRUSTRATION if pattern.search(raw))
     return cues >= 2 or (cues >= 1 and raw.count("!") >= 2)

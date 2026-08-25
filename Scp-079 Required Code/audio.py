@@ -23,7 +23,7 @@ _MAX = 32767
 # conversation, which fires the bang without the gif, the lockout or the joke.
 # Substrings rather than exact names, because these files are dropped in by
 # hand and "tenor_explosiom" is already a typo nobody should have to reproduce.
-RESERVED_MARKERS = ("explos", "explosiom", "nuke", "fire")
+RESERVED_MARKERS = ("explos", "explosiom", "nuke", "fire", "are you sure")
 
 
 def _is_reserved(stem):

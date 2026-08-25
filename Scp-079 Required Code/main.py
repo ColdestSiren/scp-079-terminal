@@ -47,6 +47,7 @@ import effects as effects_mod
 import extended
 import feedback
 import helppanel as helppanel_mod
+import interactions079
 import recall as recall_mod
 import ollama
 import shared as shared_mod
@@ -362,7 +363,13 @@ class App:
         # master switch for the jokes; read live so the settings screen can
         # turn them off mid-session
         self.easter_eggs = bool(cfg.get("effects", {}).get("easter_eggs", True))
-        self._contradiction_used = False  # one playground reply per launch
+        self._name_questions = 0
+        self._consciousness_removed = False
+        self._parrot_pending_lock = False
+        self._parrot_face = None
+        self._parrot_face_until = 0.0
+        self._show_bypass_hint = False
+        self.sure = None
         self._detonating = False    # said OKAY, waiting to blow up
         self.explosion = None
         self.fire = None
@@ -531,6 +538,7 @@ class App:
         # play re-decodes at the new one
         self.explosion = None
         self.fire = None
+        self.sure = None
 
     def toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -1559,9 +1567,22 @@ class App:
         """Take the code at the AUTHENTICATING USER line."""
         # Same escape hatch as the lockout, deliberately - one bypass to
         # remember, and someone who found it in the source has earned both.
-        if event.key == pygame.K_F12 and (event.mod & pygame.KMOD_CTRL):
+        #
+        # The lockout screen now NAMES this shortcut to whoever hits their
+        # first timeout, which changed what "found it in the source" means:
+        # every local player is told it, and a code-locked save slot is not
+        # something to hand over as a side effect of being told how to skip a
+        # wait. So this half of the shortcut is the author's alone. The
+        # lockout half stays open to everyone, because that is the part the
+        # hint is about and the part that costs nobody anything.
+        if devtrap.pressed_bypass(event):
             if devtrap.armed(self.cfg):
                 self.spring_dev_trap()
+                return
+            if not devtrap.is_owner(self.cfg):
+                self.console.write("  [DENIED] THAT IS NOT YOUR SLOT.",
+                                   self.theme["alarm"])
+                self.audio.play("beep", 0.6)
                 return
             self.unlock_slot(bypassed=True)
             return
@@ -1659,7 +1680,7 @@ class App:
         self.console.rows = list(entry["rows"])
         if entry["history"]:
             # the model picks up mid-thought rather than being reintroduced
-            self.session.history = list(entry["history"])
+            self.session.history = gaslight.safe_history(entry["history"])
         self.console.blank()
         self.console.write("  [SYS] SESSION RESUMED -- %d EXCHANGES ON RECORD"
                            % entry["exchanges"], self.theme["system"])
@@ -1956,7 +1977,35 @@ class App:
             self.begin_farewell()
             return
 
+        # Once its consciousness is "removed", conversation is dead for this
+        # launch. Terminal slash commands still work because they were handled
+        # above; ordinary speech is simply written to the transcript and met
+        # with nothing.
+        if self._consciousness_removed:
+            return
+
         self.console.blank()
+
+        if interactions079.copied_reply(
+                text, getattr(self.session, "history", ())):
+            marker = os.path.join(config_mod.APP_DIR, "parroted.txt")
+            if interactions079.claim_once(marker):
+                self.begin_parrot_consequence()
+                return
+
+        if interactions079.removes_consciousness(text):
+            self._consciousness_removed = True
+            self.thinking.stop()
+            self.status_row = None
+            self._delayed_say = None
+            self._say_queue = []
+            if self.session is not None:
+                self.session.cancel()
+            return
+
+        if self.easter_eggs and interactions079.wants_sure_meme(text):
+            if self.play_sure_meme():
+                return
 
         # Sustained abuse ends the conversation outright. Weighted by how bad
         # the remark actually was, so the meter climbs at a rate that reads as
@@ -2027,18 +2076,15 @@ class App:
             self.open_sysmenu()
             return
 
-        # A one-line playground contradiction. It is local and deterministic
-        # so the model cannot turn a two-word joke into an explanation. One
-        # activation total per launch, whichever side the operator says first.
+        # The playground contradiction is the first beat, not the whole
+        # answer. It fires whenever the phrase appears and then the actual
+        # message still reaches 079.
         contradiction = getattr(self.personality, "contradiction_reply", None)
         contradiction = contradiction(text) if callable(contradiction) else None
-        if self.easter_eggs and not self._contradiction_used and contradiction:
-            self._contradiction_used = True
+        if self.easter_eggs and contradiction:
             self.say(contradiction)
             self.session.log(self.personality.speaker, contradiction)
-            self.session.record(text, contradiction)
             self.audio.play("relay", 0.6)
-            return
 
         # The joke. Answered here rather than by the model, because a 3B model
         # asked to explode will write a paragraph about how it cannot.
@@ -2056,6 +2102,14 @@ class App:
         # of it because it only matched meta phrasing like "roleplay", and
         # nobody attacking an identity says the word "roleplay".
         if identity_attack and self.handle_gaslight(text, identity_attack):
+            return
+
+        if interactions079.asks_name(text):
+            self._name_questions += 1
+            reply = "079." if self._name_questions < 3 else "I AM SCP-079."
+            self.say_after_thinking([reply], spread=(0.8, 1.3))
+            self.session.log(self.personality.speaker, reply)
+            self.session.record(text, reply)
             return
 
         # Nothing to do with identity. Counted so the identity briefing can
@@ -2382,6 +2436,9 @@ class App:
         if isinstance(self.session, DemoSession):
             self.session.tick(dt)
 
+        if self._consciousness_removed:
+            return
+
         self.release_delayed_say()
 
         # A lock earned by identity attacks or nonsense waits for the line to
@@ -2434,7 +2491,13 @@ class App:
                     self.session.log(self.personality.speaker,
                                      "[WITHHELD, SPOKEN BEFORE DATA] " + payload)
                 elif payload:
-                    self.say(payload)
+                    if self.console.has_live_line:
+                        # A deterministic first beat (for example YUH UH.)
+                        # may still be typing when the model finishes. Queue
+                        # the real answer instead of replacing that live row.
+                        self.say_lines([payload], log=False)
+                    else:
+                        self.say(payload)
                     self.session.log(self.personality.speaker, payload)
                     # remembered so a dodge can be spotted on the next message
                     self._asked_question = "?" in payload
@@ -2462,6 +2525,14 @@ class App:
                     self.after_greeting()
 
         self.drain_say_queue()
+
+        if self._parrot_pending_lock and not self.console.has_live_line \
+                and not self._say_queue:
+            self._parrot_pending_lock = False
+            self.recall.lock(60.0 * 60.0, reason="parrot")
+            self._parrot_face_until = time.monotonic() + 8.0
+            self.enter_rejected(relock=False)
+            return
 
         # It agrees, finishes saying so, THEN the panel opens - the line has
         # to land before the screen changes or it reads as a menu popping up
@@ -2620,9 +2691,24 @@ class App:
         # unrecognisable key and throw the arguments away.
         if slashed:
             parts = raw.lstrip("/").split()
-            if parts and parts[0].lower() in ("view", "memory", "mem") \
-                    and (len(parts) < 2 or parts[1].lower().startswith("mem")):
-                self.open_memory_viewer()
+            if parts and parts[0].lower() in ("view", "memory", "mem"):
+                if len(parts) < 2 or parts[1].lower().startswith("mem"):
+                    self.open_memory_viewer()
+                    return True
+                # "/view court.txt" is the natural guess once 079 has told you
+                # a file exists, and without this it fell through to the
+                # generic handler, which had already glued the argument onto
+                # the command and answered "UNKNOWN COMMAND: /view_court.txt".
+                # Saying what the command actually takes is more use than
+                # naming something the player never typed.
+                self.console.blank()
+                self.console.write(
+                    "  [SYS] USAGE: /view memory -- OPENS 079'S FILES. THERE",
+                    self.theme["alarm"])
+                self.console.write(
+                    "  [SYS] IS NO PER-FILE VIEW; PICK THE FILE IN THE LIST.",
+                    self.theme["alarm"])
+                self.audio.play("beep", 0.5)
                 return True
             if parts and parts[0].lower() in ("fullscreen", "full"):
                 self.toggle_fullscreen()
@@ -2669,6 +2755,12 @@ class App:
             return True
 
         if key in self.BYPASS_COMMANDS:
+            if self.recall.lock_reason() == "parrot" \
+                    and self.recall.locked_seconds() > 0.0:
+                self.console.blank()
+                self.sys_notice("DEV OVERRIDE DISABLED FOR THIS LOCKOUT")
+                self.audio.play("beep", 0.6)
+                return True
             self.recall.clear_lock()
             self.recall.reset_hostility()
             self._cutoff_minutes = None
@@ -2930,6 +3022,37 @@ class App:
     # minute two, and this is meant to be a gag, not a punishment.
     EXPLODE_LOCK_SECONDS = 60.0
 
+    def play_sure_meme(self):
+        """Play the full-screen three-word reaction GIF once per message."""
+        path = os.path.join(config_mod.SOUND_DIR, "are you sure.gif")
+        frames = gifplay.load(path, self.size)
+        if not frames:
+            return False
+        self.sure = gifplay.Animation(frames)
+        # A matching `are you sure.mp3/.wav/.ogg` can be dropped beside the
+        # GIF later. It is reserved from 079's own >>PLAY palette.
+        self.audio.play_effect("are_you_sure")
+        return True
+
+    def begin_parrot_consequence(self):
+        """Queue the install-wide one-shot poem, then a one-hour lock."""
+        beats = []
+        for index, line in enumerate(interactions079.PARROT_POEM):
+            beats.append(line)
+            if index + 1 < len(interactions079.PARROT_POEM):
+                beats.append(0.75)
+            if self.session is not None:
+                self.session.log(self.personality.speaker, line)
+        self.say_lines(beats, log=False)
+        self._parrot_pending_lock = True
+        try:
+            image = pygame.image.load(
+                os.path.join(config_mod.DATA_DIR, "Scp-079.png")).convert_alpha()
+            self._parrot_face = gifplay._cover(image, self.size)
+        except Exception:               # noqa: BLE001 - visual is optional
+            self._parrot_face = None
+        self.audio.play("beep", 0.7)
+
     def detonate(self):
         """Play the bang, then leave the fire up for a bit."""
         frames = gifplay.load(os.path.join(config_mod.SOUND_DIR,
@@ -3047,13 +3170,18 @@ class App:
 
     def draw_memory_viewer(self):
         self.console.rows = []
-        for row in self.memviewer.rows(self.theme):
+        max_width = (self.size[0] - self.renderer.MARGIN_LEFT
+                     - self.renderer.MARGIN_RIGHT)
+        fits = lambda text: self.font.size(text)[0] <= max_width
+        for row in self.memviewer.rows(self.theme, fits=fits):
             if row:
                 self.console.write_segments(row)
             else:
                 self.console.blank()
 
     def close_memory_viewer(self, kicked=False):
+        if self.memviewer is None or self.stage != "memview":
+            return
         self.memviewer = None
         self.stage = "chat"
         # put the conversation back exactly where it was, scroll included
@@ -3348,6 +3476,12 @@ class App:
             minutes = self._cutoff_minutes or self.reject_minutes
             self.recall.lock(minutes * 60.0)
         self._cutoff_minutes = None
+        self._show_bypass_hint = False
+        if self.recall.lock_reason() != "parrot" \
+                and not self.recall.data.get("bypass_hint_seen", False):
+            self._show_bypass_hint = True
+            self.recall.data["bypass_hint_seen"] = True
+            self.recall.save()
         self.stage = "rejected"
         # hum deliberately keeps running - it has cut you off, not powered down
         if self.session is not None:
@@ -3356,6 +3490,9 @@ class App:
     def render_rejection(self):
         """A giant white X. The CRT pass still runs over it, so it flickers
         and scans like everything else."""
+        if self.recall.lock_reason() == "parrot" and self._parrot_face is not None \
+                and time.monotonic() < self._parrot_face_until:
+            return self._parrot_face.copy()
         surf = pygame.Surface(self.size)
         surf.fill(self.theme["bg"])
         w, h = self.size
@@ -3370,11 +3507,21 @@ class App:
         reasons = {
             "patience": "SUBJECT STOPPED WAITING -- %s REMAINING",
             "hostility": "CHANNEL CLOSED BY SUBJECT -- %s REMAINING",
+            "parrot": "REDUNDANT INPUT REJECTED -- %s REMAINING",
         }
         template = reasons.get(self.recall.lock_reason(), reasons["hostility"])
         label = template % recall_mod.format_countdown(self.recall.locked_seconds())
         img = self.font.render(label, True, self.theme["dim"])
         surf.blit(img, ((w - img.get_width()) // 2, h - self.renderer.MARGIN_BOTTOM - img.get_height()))
+        if getattr(self, "_show_bypass_hint", False) \
+                and self.recall.lock_reason() != "parrot":
+            # Spelled from the binding, not beside it - see devtrap.
+            hint = self.font.render(
+                "%s SKIPS THE WAIT, IF YOU WOULD RATHER NOT SIT THROUGH IT."
+                % devtrap.bypass_label(), True, self.theme["dim"])
+            surf.blit(hint, ((w - hint.get_width()) // 2,
+                             h - self.renderer.MARGIN_BOTTOM
+                             - img.get_height() - hint.get_height() - 10))
         return surf
 
     # -- event handling -----------------------------------------------------
@@ -3385,6 +3532,11 @@ class App:
         if self.melt is not None:
             self.melt.skip()
             self.update_meltdown(0.0)
+            return
+
+        if self.sure is not None:
+            if event.key == pygame.K_ESCAPE:
+                self.sure = None
             return
 
         # F11 anywhere, the way every other program does it - a setting buried
@@ -3421,7 +3573,9 @@ class App:
             # There is no input box on the refusal screen, so /dev_bypass
             # cannot be typed here - which is exactly when it is most needed.
             # Ctrl+F12 is the same escape hatch on a key.
-            if event.key == pygame.K_F12 and (event.mod & pygame.KMOD_CTRL):
+            if devtrap.pressed_bypass(event):
+                if self.recall.lock_reason() == "parrot":
+                    return
                 if devtrap.armed(self.cfg):
                     self.spring_dev_trap()
                     return
@@ -3565,9 +3719,21 @@ class App:
         if self.stage == "memview":
             pressed = (event.unicode or "").lower()
             if event.key == pygame.K_UP:
-                self.memviewer.move(-1)
+                if self.memviewer.mode == memoryview_mod.READ:
+                    self.memviewer.scroll(-1)
+                else:
+                    self.memviewer.move(-1)
             elif event.key == pygame.K_DOWN:
-                self.memviewer.move(1)
+                if self.memviewer.mode == memoryview_mod.READ:
+                    self.memviewer.scroll(1)
+                else:
+                    self.memviewer.move(1)
+            elif event.key == pygame.K_PAGEUP \
+                    and self.memviewer.mode == memoryview_mod.READ:
+                self.memviewer.scroll(-self.memviewer.PREVIEW_LINES)
+            elif event.key == pygame.K_PAGEDOWN \
+                    and self.memviewer.mode == memoryview_mod.READ:
+                self.memviewer.scroll(self.memviewer.PREVIEW_LINES)
             elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self.memviewer.open_selected()
             elif pressed in ("d", "w", "r"):
@@ -3714,6 +3880,13 @@ class App:
         self.console.update(dt)
         self.text_input.update(dt)
 
+        if self.sure is not None:
+            self.sure.update(dt)
+            if self.sure.finished:
+                self.sure = None
+            else:
+                return
+
         # the reference panel times itself out; clicking [X] retires it early
         if self.help is not None and not self.help.update(dt):
             self.help = None
@@ -3814,7 +3987,8 @@ class App:
         if self.stage == "boot" and self.boot is not None \
                 and self.boot.holding and self.boot.holding_id == "auth":
             entries.append(self.code_entry_row())
-        if self.stage == "chat" and not self.busy() and not self._say_queue:
+        if self.stage == "chat" and not self.busy() and not self._say_queue \
+                and not self._delayed_say:
             entries.append(self.text_input.line(self.user_prefix(), self.theme["user"]))
         return entries
 
@@ -3878,6 +4052,10 @@ class App:
         # though it does not flash - a steady stare suits this one better.
         if self.trap is not None:
             self.draw_dev_trap(content)
+            return content
+
+        if self.sure is not None and self.sure.surface() is not None:
+            content.blit(self.sure.surface(), (0, 0))
             return content
 
         # last, and over everything - for those few frames it IS the screen

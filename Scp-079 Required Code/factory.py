@@ -50,6 +50,11 @@ _CLEARED = {
     "hostility": float,
     "hostility_at": float,
     "exchanges": int,
+    # The first-lockout hint naming the bypass key. Cleared rather than kept,
+    # because this reset's whole job is to look like a clean install and a
+    # clean install shows it. Unlike the one-time gag marker, showing it twice
+    # costs nothing - it is a courtesy, not a joke that can be spent.
+    "bypass_hint_seen": bool,
 }
 
 # Counters that do not go to zero.

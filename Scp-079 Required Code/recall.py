@@ -59,6 +59,7 @@ _DEFAULT = {
     # for a whole session and vanished at relaunch.
     "profile": {},
     "sysmenu": {},
+    "bypass_hint_seen": False,
 }
 
 # Keys holding mutable containers. dict(_DEFAULT) copies the references, not
@@ -264,4 +265,3 @@ class Recall:
 def format_countdown(seconds):
     seconds = int(max(0, seconds))
     return "%02d:%02d" % (seconds // 60, seconds % 60)
-

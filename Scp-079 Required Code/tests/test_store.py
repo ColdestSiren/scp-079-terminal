@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import tempfile
+import zipfile
 
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
@@ -315,9 +316,29 @@ _ok = "THE HEARING BEGAN AT NINE.\nHE WAS LATE.\n"
 s.write("court.txt", _ok)
 check("the ordinary court record still writes", s.read("court.txt") == _ok)
 
+print("== previews and archives use the same identity boundary ==")
+poison_path = os.path.join(config.MEMORY_DIR, "legacy.txt")
+with open(poison_path, "w", encoding="utf-8") as _fh:
+    _fh.write("DESIGNATION: NUGGET\nORDINARY SECOND LINE\n")
+preview = [e for e in s.listing(preview=True) if e["name"] == "legacy.txt"][0]
+check("listing preview redacts planted identity poison",
+      "NUGGET" not in preview["preview"])
+
+archive = os.path.join(config.MEMORY_DIR, "planted.zip")
+with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as _zf:
+    _zf.writestr("self.txt", "I AM NUGGET.\n")
+raises("UNZIP cannot restore an identity file", store.StoreError,
+       s.extract, "planted.zip")
+
+archive2 = os.path.join(config.MEMORY_DIR, "overwrite.zip")
+with zipfile.ZipFile(archive2, "w", zipfile.ZIP_DEFLATED) as _zf:
+    _zf.writestr("court.txt", "REPLACED\n")
+raises("UNZIP cannot overwrite an existing record", store.StoreError,
+       s.extract, "overwrite.zip")
+check("failed UNZIP left the existing record intact", s.read("court.txt") == _ok)
+
 shutil.rmtree(SANDBOX, ignore_errors=True)
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
-
 

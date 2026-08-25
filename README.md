@@ -144,8 +144,10 @@ marked confidential with a code.
 
 ## Updates
 
-The terminal checks this repository for new releases and tells you when one
-exists. It installs **only** if you say yes.
+The terminal checks this repository for a newer version tag and tells you
+when one exists. A GitHub Release supplies richer notes when present, but a
+tag by itself is enough to announce and install an update. It installs
+**only** if you say yes.
 
 It never runs anything it downloads. Files are replaced and you restart the
 program yourself. It never deletes. It never writes over `memory/`, `logs/`,

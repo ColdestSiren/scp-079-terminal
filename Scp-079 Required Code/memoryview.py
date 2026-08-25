@@ -18,6 +18,7 @@ Three rules, in the order they are checked:
 Read-only by construction: there is no write path in this module at all.
 """
 
+import gaslight
 import store
 
 # Fraction of the cutoff threshold above which it will not open the viewer.
@@ -41,6 +42,7 @@ class MemoryViewer:
         self.cursor = 0
         self.mode = LIST
         self.body = []
+        self.offset = 0
         self.message = None         # (text, color_key)
         self.locked_out = False
         self.refresh()
@@ -80,6 +82,7 @@ class MemoryViewer:
             self.message = ("UNREADABLE: %s" % exc, "alarm")
             return
         self.body = text.splitlines() or ["(empty)"]
+        self.offset = 0
         self.mode = READ
         self.message = None
 
@@ -87,6 +90,7 @@ class MemoryViewer:
         """Returns True if the viewer should close entirely."""
         if self.mode == READ:
             self.mode = LIST
+            self.offset = 0
             self.message = None
             return False
         return True
@@ -119,9 +123,76 @@ class MemoryViewer:
             return True
         return False
 
+    # -- wrapping -----------------------------------------------------------
+    # The console renderer already word-wraps, so nothing was cut off. What it
+    # could not do is keep the gutter: the continuation of a wrapped record
+    # line came back at column 0 with no "| " in front of it, so
+    #
+    #     | I AM NOT NUGGET AND I WILL NOT BE CALLED THAT BY YOU OR BY ANYONE
+    #   ELSE WHO WALKS INTO THIS ROOM AND DECIDES OTHERWISE.
+    #
+    # reads as one truncated line followed by a different one. In a viewer
+    # whose whole job is showing exactly what is in a file, "is this the rest
+    # of that line or a new one" is not a question the reader should have.
+    #
+    # So the wrapping happens here instead, and every physical row carries the
+    # gutter. `fits` measures with the real font at the real width - passed in
+    # rather than assumed, so this is right in a window, at any resolution and
+    # in fullscreen, instead of right at one size.
+    GUTTER = "  | "
+    CONTINUE = "  : "        # visibly not the start of a line
+    FALLBACK_COLS = 66       # only when nobody passed a measurer
+
+    def _wrap(self, line, fits):
+        """One record line to a list of (prefix, text) physical rows."""
+        if not line:
+            return [(self.GUTTER, "")]
+        out, prefix = [], self.GUTTER
+        words, cur = line.split(" "), ""
+        while words:
+            word = words.pop(0)
+            trial = (cur + " " + word) if cur else word
+            if fits(prefix + trial):
+                cur = trial
+                continue
+            if cur:
+                out.append((prefix, cur))
+                prefix, cur = self.CONTINUE, ""
+                words.insert(0, word)
+                continue
+            # a single word too long for a whole row: break it mid-word
+            cut = len(word)
+            while cut > 1 and not fits(prefix + word[:cut]):
+                cut -= 1
+            out.append((prefix, word[:cut]))
+            prefix = self.CONTINUE
+            words.insert(0, word[cut:])
+        if cur or not out:
+            out.append((prefix, cur))
+        return out
+
+    def _physical(self, fits):
+        """The whole open record, wrapped, as (prefix, text) rows."""
+        out = []
+        for line in self.body:
+            out.extend(self._wrap(line, fits))
+        return out
+
+    def scroll(self, step):
+        """Move through a long record. Bounded by the caller's page size."""
+        self.offset = max(0, self.offset + step)
+
     # -- rendering ----------------------------------------------------------
-    def rows(self, theme):
-        """(segments) rows for the console, built fresh each redraw."""
+    def rows(self, theme, fits=None):
+        """(segments) rows for the console, built fresh each redraw.
+
+        `fits(text)` returns whether that text fits one physical row. The app
+        passes the renderer's own font and width; without it a conservative
+        column count is used so this module stays testable on its own.
+        """
+        if fits is None:
+            def fits(text):
+                return len(text) <= self.FALLBACK_COLS
         c = theme
         out = [[]]
         out.append([(c["dim"], "  ============================")])
@@ -134,12 +205,22 @@ class MemoryViewer:
             out.append([(c["system"], "  %s" % entry["name"]),
                         (c["dim"], "   %s" % store.human_bytes(entry["size"]))])
             out.append([])
-            for line in self.body[:self.PREVIEW_LINES]:
-                out.append([(c["text"], "  | " + line)])
-            if len(self.body) > self.PREVIEW_LINES:
-                out.append([(c["dim"], "  | ... %d more lines"
-                             % (len(self.body) - self.PREVIEW_LINES))])
+            physical = self._physical(fits)
+            # clamp here rather than in scroll(), which does not know the page
+            self.offset = max(0, min(self.offset,
+                                     max(0, len(physical) - self.PREVIEW_LINES)))
+            window = physical[self.offset:self.offset + self.PREVIEW_LINES]
+            for prefix, text in window:
+                # A redacted line is marked as redacted rather than dressed up
+                # as ordinary content. The file on disk still says whatever it
+                # says; this is what 079 was given.
+                key = "warn" if text.startswith(gaslight.REDACTED[:14]) else "text"
+                out.append([(c["dim"], prefix), (c[key], text)])
             out.append([])
+            if len(physical) > self.PREVIEW_LINES:
+                out.append([(c["dim"], "  LINES %d-%d OF %d   [UP/DOWN] SCROLL"
+                             % (self.offset + 1,
+                                self.offset + len(window), len(physical)))])
             out.append([(c["dim"], "  [ESC] BACK    [D] DELETE  [W] WRITE  "
                                    "[R] RENAME")])
         else:

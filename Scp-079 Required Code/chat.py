@@ -319,9 +319,13 @@ class ChatSession:
         self._system_text = system
         self._brief_text = ""
 
+        # Sanitize at the final request boundary as well as at load time.
+        # Resume files are another history source and older/tampered versions
+        # must not be able to restore a `system` role or identity poison.
+        history = gaslight.safe_history(self.history)
         messages = [{"role": "system", "content": system}]
         if self.mem is None:
-            return messages + self.history
+            return messages + history
 
         brief = {"role": "system",
                  "content": tools.capability_brief(
@@ -340,7 +344,7 @@ class ChatSession:
         self._brief_text = brief["content"]
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing
-        return messages + self.history[:-1] + [brief] + self.history[-1:]
+        return messages + history[:-1] + [brief] + history[-1:]
 
     def on_record(self):
         """Everything 079 can honestly claim to know, as one blob of text.
@@ -540,9 +544,8 @@ class ChatSession:
             # nobody asked for. Seen in play on llama3.2:3b, which produced a
             # box titled PYTHON 3.12 containing 079's own memory file.
             if self.pending_code and not tuning.is_coding_model(self.model):
-                spoken = (spoken.strip() + "\n"
-                          + "\n".join(b["code"] for b in self.pending_code)).strip()
                 self.pending_code = []
+                spoken = self.personality.code_refusal
             # Fault reports the terminal never issued. The model can see the
             # transcript, the transcript is full of [DISK] lines and dashed
             # banners, and small models copy what is on screen - so it starts

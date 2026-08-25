@@ -12,9 +12,15 @@ cannot quietly drift out of date with the commands that actually work.
 
 import pygame
 
+import devtrap
 import terminal as term
 
 SECONDS = 30.0
+
+# How long each page of the reference is held before the next one comes up.
+# Slow enough to finish reading a page, fast enough that a 30 second panel
+# gets through all of them.
+PAGE_SECONDS = 7.5
 
 # (command, what it does). Keep in sync with main.App's command tables - there
 # is a test that fails if a real command is missing from this list.
@@ -32,6 +38,11 @@ ENTRIES = [
     ("/update", "Check GitHub for a newer version. Asks before installing."),
     ("/feedback", "Send a bug or an idea to the author. Nothing auto-sends."),
     ("/debug", "List the developer commands."),
+    # {bypass} is filled in from the real key binding at layout time. The
+    # lockout screen names this shortcut the first time you hit a timeout and
+    # then never again, so this is where it lives permanently.
+    ("/unlock", "Skip a lockout wait. {bypass} does the same, and works "
+                "on the refusal screen where there is nothing to type into."),
     ("/exit", "End the session. Also /quit, /disconnect, /terminate."),
 ]
 
@@ -90,6 +101,19 @@ class HelpPanel:
                   + len(self.body) * self.line_h + 6 + self.GAP + self.line_h)
         self.height = min(height, screen_h - self.MARGIN * 2)
 
+        # On the DEFAULT 960x720 window this panel wanted 839px and had 688,
+        # so draw() hit its limit and simply stopped - eight rows short. The
+        # footnotes explaining that a leading slash talks to the terminal, and
+        # that 079 manages its own memory, were never on screen for anyone who
+        # had not enlarged the window. Nothing said so; the list just ended.
+        #
+        # So it pages instead of stopping. Everything gets its turn, and a
+        # panel that visibly has a page 2 is honest about there being more,
+        # which a silently truncated list is not.
+        self.pages = self._paginate()
+        self.page = 0
+        self._page_timer = 0.0
+
         # the [X] hit box, in screen coordinates - the CRT pass does not move
         # or scale anything, so these are the same pixels the mouse reports
         box = self.title_font.get_linesize()
@@ -102,7 +126,8 @@ class HelpPanel:
         rows = []
         for command, description in ENTRIES:
             rows.append((0, "bright", command))
-            for line in _wrap(self.font, description, inner - 14):
+            described = description.replace("{bypass}", devtrap.bypass_label())
+            for line in _wrap(self.font, described, inner - 14):
                 rows.append((14, "dim", line))
         rows.append((0, None, ""))
         for note in FOOTNOTES:
@@ -110,11 +135,39 @@ class HelpPanel:
                 rows.append((10 if i else 0, "system", ("- " if i == 0 else "") + line))
         return rows
 
+    def rows_per_page(self):
+        usable = (self.height - self.PAD * 2 - self.title_font.get_linesize()
+                  - 6 - 6 - self.GAP - self.line_h)
+        return max(1, int(usable // self.line_h))
+
+    def _paginate(self):
+        """Chunk the body, without stranding a command from its description."""
+        per = self.rows_per_page()
+        pages, index = [], 0
+        while index < len(self.body):
+            page = self.body[index:index + per]
+            if index + per < len(self.body):
+                # A command heading alone at the foot of a page reads as a
+                # command with no explanation, so it goes over with its
+                # description rather than being separated from it.
+                while page and page[-1][1] == "bright":
+                    page.pop()
+                if not page:                     # every row is a heading
+                    page = self.body[index:index + per]
+            pages.append(page)
+            index += len(page)
+        return pages or [[]]
+
     def update(self, dt):
         """Returns False once it should disappear."""
         if self.closed:
             return False
         self.remaining -= dt
+        if len(self.pages) > 1:
+            self._page_timer += dt
+            while self._page_timer >= PAGE_SECONDS:
+                self._page_timer -= PAGE_SECONDS
+                self.page = (self.page + 1) % len(self.pages)
         return self.remaining > 0.0
 
     def hit_close(self, pos):
@@ -151,7 +204,7 @@ class HelpPanel:
 
         bottom = self.y + self.height - self.PAD - self.line_h
         body_limit = bottom - self.GAP
-        for indent, color_key, text in self.body:
+        for indent, color_key, text in self.pages[self.page]:
             if y + self.line_h > body_limit:
                 break
             if text:
@@ -160,5 +213,8 @@ class HelpPanel:
             y += self.line_h
 
         countdown = "CLOSES IN %ds    [X] TO DISMISS" % max(0, int(self.remaining + 0.5))
+        if len(self.pages) > 1:
+            countdown = "PAGE %d/%d    %s" % (self.page + 1, len(self.pages),
+                                              countdown)
         surface.blit(self.font.render(countdown, True, c["dim"]),
                      (self.x + self.PAD, bottom))
