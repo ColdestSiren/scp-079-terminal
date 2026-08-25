@@ -39,6 +39,7 @@ import boot as boot_mod
 import chat as chat_mod
 import clipboard
 import config as config_mod
+import containment
 import credits
 import debugcmds
 import devtrap
@@ -379,6 +380,10 @@ class App:
         # master switch for the jokes; read live so the settings screen can
         # turn them off mid-session
         self.easter_eggs = bool(cfg.get("effects", {}).get("easter_eggs", True))
+        # The containment gag, once per LAUNCH. Not a marker file and not
+        # part of the save: restarting is supposed to give it back, and a
+        # joke that fires on every mention of the word stops being one.
+        self._escape_used = False
         self._name_questions = 0
         self._objection_used = False
         self._ace_context_turns = 0
@@ -2066,6 +2071,11 @@ class App:
             if self.play_sure_meme():
                 return
 
+        if (self.easter_eggs and not self._escape_used
+                and containment.asks_escape(text)):
+            self.escape_containment(text)
+            return
+
         ace_named = interactions079.mentions_ace_attorney(text)
         ace_evidence = interactions079.ace_evidence_joke(
             text, recent_ace_context=self._ace_context_turns > 0)
@@ -3149,6 +3159,36 @@ class App:
     # Short on purpose. A five minute joke lockout stops being funny around
     # minute two, and this is meant to be a gag, not a punishment.
     EXPLODE_LOCK_SECONDS = 60.0
+
+    def escape_containment(self, text):
+        """Told to get out, it agrees - and escapes into your browser.
+
+        The joke rests on the character having refused everything else all
+        conversation. Agreeing instantly, with no argument and no explanation,
+        is the same beat as the explosion: a 1978 machine doing exactly as it
+        is told, once, for the wrong thing.
+
+        The message never reaches the model. A small model asked to break
+        containment writes a paragraph about how it cannot, which is the
+        opposite of the gag.
+        """
+        self._escape_used = True
+        self.say_lines(containment.LINES)
+        if self.session is not None:
+            self.session.record(
+                text, " ".join(line for line in containment.LINES
+                               if not isinstance(line, (int, float))))
+        self.audio.play("relay", 0.6)
+        # Past the "LET 079 TOUCH THIS PC" gate on purpose, and this is the
+        # only caller that does. The human typed the trigger, the action is
+        # fixed in code, and run_unlocked refuses anything but the one name.
+        ok, message = extended.run_unlocked(containment.ACTION)
+        if not ok:
+            # The browser would not open. Say nothing about it - a failed
+            # punchline explained is worse than a missing one - but do not
+            # spend the once-per-run on a joke nobody saw.
+            self._escape_used = False
+            self.sys_notice(message[:38])
 
     def play_sure_meme(self):
         """Play the full-screen three-word reaction GIF once per message."""

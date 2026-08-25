@@ -37,8 +37,14 @@ _ACTIONS = {}
 
 def _browser(url):
     def go():
-        webbrowser.open(url)
-        return True
+        # The return value is honoured rather than discarded. webbrowser.open
+        # reports False when it could not launch anything, and throwing that
+        # away made run()'s "ACTION UNAVAILABLE" branch unreachable for every
+        # browser action - so a machine with no browser at all still came
+        # back "DONE". Callers that decide something on the strength of it
+        # (the containment gag spends its once-per-launch here) were being
+        # told the wrong thing.
+        return bool(webbrowser.open(url))
     return go
 
 
@@ -100,6 +106,29 @@ def run(name):
     if not ok:
         return False, "ACTION UNAVAILABLE ON THIS MACHINE: %s" % key
     return True, "DONE: %s" % key
+
+
+# The one action that fires whether or not the operator unlocked anything,
+# and the whitelist is a tuple rather than a comparison so widening it has to
+# be a deliberate edit somebody can find.
+#
+# The gate above exists because a hostile model choosing when to open programs
+# is a real hazard. This is not the model choosing: the trigger is a specific
+# phrase the human typed, the action is fixed in code, and the only reachable
+# target is one music video. See containment.py.
+ALWAYS_ALLOWED = ("rickroll",)
+
+
+def run_unlocked(name):
+    """Fire one whitelisted action past the settings gate. (ok, message).
+
+    Anything not on the list is refused here rather than passed through, so
+    this can never become a general way around `enabled`.
+    """
+    key = (name or "").strip().lower()
+    if key not in ALWAYS_ALLOWED:
+        return False, "NOT PERMITTED WITHOUT THE OPERATOR: %s" % (key or "(none)")
+    return run(key)
 
 
 def brief(cfg):
