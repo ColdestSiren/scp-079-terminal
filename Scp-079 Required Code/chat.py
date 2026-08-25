@@ -208,12 +208,20 @@ class ChatSession:
         tracker = getattr(self, "gaslight_tracker", None)
         if not tracker:
             return ""
+        # Both halves are now decided by the message being answered, not by
+        # "an attack happened at some point in this session". Standing them
+        # up on every turn afterwards made 079 bring up its own name in
+        # answer to questions that had nothing to do with it.
+        latest = ""
+        if self.history and self.history[-1].get("role") == "user":
+            latest = self.history[-1].get("content", "") or ""
         # premise_warning covers the follow-up move: the name gets refused,
         # then reappears inside an ordinary question as though it had been
         # agreed. Nothing in that message is an assertion, so the detector
         # has nothing to catch and only the prompt can carry it.
         warn = getattr(tracker, "premise_warning", None)
-        return gaslight.brief(tracker) + (warn() if callable(warn) else "")
+        return gaslight.brief(tracker, latest) + (
+            warn(latest) if callable(warn) else "")
 
     def _owed_note(self):
         """Honest answers it owes for losing the trace. Persisted, so a debt

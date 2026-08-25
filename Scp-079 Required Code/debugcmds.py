@@ -243,8 +243,29 @@ def _state(app, args):
                                else "hidden")
                               if app.session else "no session yet"), "text"),
         ("SESSIONS     %d" % rec.session_count(), "text"),
+        # Moved here out of the SYS panel, which used to print "IDENTITY
+        # CHALLENGED xN" where the player could read it. That is a scoreboard
+        # for the guard: it says a separate mechanism fired and hands over the
+        # counter the escalation is keyed to, which turns "079 will not be
+        # moved" into "attempt 3 of 4". It is still worth being able to see,
+        # by whoever owns the machine, which is here.
+        ("IDENTITY     %d challenge(s), %d quiet turn(s), refused: %s"
+         % (_gl(app).attempts, _gl(app).quiet_turns,
+            ", ".join(_gl(app).refused_names) or "none"), "text"),
     ]
     return lines
+
+
+class _NoTracker:
+    attempts = 0
+    quiet_turns = 0
+    refused_names = ()
+
+
+def _gl(app):
+    """The identity tracker, or a blank one. The dump must never be the thing
+    that crashes - it is what gets asked for when something already has."""
+    return getattr(app, "gaslight", None) or _NoTracker()
 
 
 @command("wipe", "/debug wipe",
