@@ -145,6 +145,105 @@ joined = " ".join(line for line, _ in out)
 for field in ("EXCHANGES", "HOSTILITY", "MEMORY", "682", "NETWORK"):
     check("state shows %s" % field, field in joined)
 
+
+# ---------------------------------------------------------------------------
+print()
+print("== /debug belongs to one account ==")
+# ---------------------------------------------------------------------------
+# It was open to anyone who typed it. Every meter the game is built on -
+# hostility, patience, the lockout, the quota - can be set to whatever you
+# like from here, so an ungated /debug makes all of them advisory.
+#
+# The account name is read live, so these force it rather than trusting
+# whichever machine the suite happens to run on.
+import devtrap
+
+_real_user = devtrap.current_user
+
+
+def _as(name):
+    devtrap.current_user = lambda: name
+
+
+try:
+    app = FakeApp()
+
+    _as("colde")
+    check("the owner is allowed", debugcmds.allowed(app))
+    check("the owner gets the listing",
+          any("hostility" in line.lower() for line, _ in debugcmds.run(app, [])))
+
+    _as("roman")
+    check("anyone else is not allowed", not debugcmds.allowed(app))
+    _out = debugcmds.run(app, [])
+    _text = " ".join(line for line, _ in _out)
+    check("and is answered as though the command does not exist",
+          "UNKNOWN COMMAND" in _text)
+    check("the refusal does not name the debug menu",
+          "hostility" not in _text.lower())
+    check("the refusal does not admit to being a refusal",
+          "DENIED" not in _text.upper() and "OWNER" not in _text.upper())
+
+    # The gate is at the dispatcher, so it covers every command rather than
+    # the ones somebody remembered to guard.
+    for _cmd in sorted(debugcmds.COMMANDS):
+        _text = " ".join(line for line, _ in debugcmds.run(app, [_cmd]))
+        check("blocked for a stranger: /debug %s" % _cmd,
+              "UNKNOWN COMMAND" in _text)
+
+    # And a real state change must not happen behind that refusal.
+    _before = app.recall.hostility()
+    debugcmds.run(app, ["hostility", "100"])
+    check("a blocked command changes nothing",
+          app.recall.hostility() == _before)
+
+    # The override exists so this can be tested on another machine without
+    # editing the source.
+    app.cfg.setdefault("debug", {})["owner_only"] = False
+    check("the config override opens it", debugcmds.allowed(app))
+    _text = " ".join(line for line, _ in debugcmds.run(app, []))
+    check("and the listing comes back", "hostility" in _text.lower())
+    app.cfg["debug"]["owner_only"] = True
+
+    # An extra owner can be named for the same reason.
+    app.cfg.setdefault("devtrap", {})["owners"] = ["roman"]
+    check("a named extra owner is allowed", debugcmds.allowed(app))
+    app.cfg["devtrap"]["owners"] = []
+
+    # The update notice, which is the one part of the updater that cannot be
+    # tested on demand: it needs a newer release to actually exist.
+    _as("colde")
+    app.toast = None
+    app.shown = []
+
+    def _show(info):
+        app.toast = info
+
+    app.show_update_toast = _show
+    _out = debugcmds.run(app, ["update"])
+    check("the update notice can be fired", app.toast is not None)
+    check("it carries the version asked for",
+          debugcmds.run(app, ["update", "2.5.1"]) is not None
+          and app.toast["version"] == "2.5.1")
+    check("a leading v is accepted",
+          debugcmds.run(app, ["update", "v3.0.0"]) is not None
+          and app.toast["version"] == "3.0.0")
+    check("it says outright that nothing was checked",
+          any("NOTHING WAS CHECKED" in line.upper() for line, _ in _out))
+    check("and a stranger cannot fire it either",
+          (lambda: (_as("roman"),
+                    "UNKNOWN COMMAND" in " ".join(
+                        line for line, _ in debugcmds.run(app, ["update"]))))()[1])
+finally:
+    devtrap.current_user = _real_user
+
+# The listing is generated from the dispatch table, so a command that exists
+# and is not listed cannot happen. Re-checked here because a new one was added.
+_listed = " ".join(line for line, _ in debugcmds.run(FakeApp(), []))
+for _cmd in sorted(debugcmds.COMMANDS):
+    check("listed: %s" % _cmd, _cmd in _listed.lower())
+
+
 print()
 print("PASS %d   FAIL %d" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)

@@ -269,6 +269,23 @@ DEFAULTS = {
         "owners": [],
     },
 
+    "debug": {
+        # /debug reaches past everything the game is about: it sets
+        # hostility to whatever you like, clears a lockout, fills the
+        # disk. It was open to anyone who typed it, which quietly made
+        # every meter in the game advisory.
+        #
+        # Matched on the same Windows account as devtrap above, so there
+        # is one definition of "the author" rather than two that drift.
+        # Independent of devtrap.enabled: the shortcut being disarmed is
+        # not a reason to hand the debug menu to everyone.
+        #
+        # Honest about what this is worth - it is an account name, and
+        # anyone with the source can delete the check. It stops a friend
+        # who was told the command, which is the whole of the job.
+        "owner_only": True,
+    },
+
     "updates": {
         # "owner/name" on GitHub - this project's own home, which is also
         # where the copy you are running was downloaded from.

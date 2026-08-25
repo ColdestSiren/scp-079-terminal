@@ -17,6 +17,7 @@ cannot leave the signed state file inconsistent the way hand-editing it does.
 import os
 
 import config
+import devtrap
 import store
 
 # Filled in by main.App - each takes (app, args) and returns a list of
@@ -190,6 +191,27 @@ def _bg(app, args):
     return [("BACKGROUND REVIEW STARTED", "warn")]
 
 
+@command("update", "/debug update",
+         "fake an update notice so the corner popup can be seen")
+def _cmd_update(app, args):
+    """Show the update toast without waiting for a real release.
+
+    The notice is the one part of the update system nobody can test on
+    demand: it needs a newer version to actually exist on GitHub, and by the
+    time one does the thing you wanted to check has already shipped. A friend
+    reported the alert never appearing and there was no way to tell whether
+    the popup was broken or the release simply was not there.
+
+    This ONLY draws the popup. It does not touch the declined-version list,
+    does not schedule a check, and cannot start a download - so it cannot
+    leave the real updater in a state it would not otherwise reach.
+    """
+    version = (args[0] if args else "9.9.9").strip().lstrip("vV")
+    app.show_update_toast({"version": version})
+    return [("UPDATE NOTICE SHOWN FOR v%s." % version, "system"),
+            ("IT IS A DRAWING. NOTHING WAS CHECKED OR DOWNLOADED.", "dim")]
+
+
 @command("state", "/debug state",
          "Dump what the game currently believes.")
 def _state(app, args):
@@ -246,8 +268,33 @@ def listing_lines():
     return out
 
 
+def allowed(app=None):
+    """Is the person at this keyboard allowed to use any of this?
+
+    /debug reaches straight past everything the game is about: it sets
+    hostility to whatever you like, clears a lockout, and fills the disk. It
+    was open to anyone who typed it, which makes every meter in the game
+    advisory.
+
+    Gated on the same Windows account check the dev shortcut uses, so there
+    is one definition of "the author" rather than two that can drift apart.
+    Honest about what that is worth: it is an account name, and anyone with
+    the source can delete this function. It stops a friend who was told the
+    command, which is the whole of what it is for.
+    """
+    cfg = getattr(app, "cfg", None) or {}
+    if not (cfg.get("debug") or {}).get("owner_only", True):
+        return True
+    return devtrap.is_owner(cfg)
+
+
 def run(app, argv):
     """argv is the whitespace-split remainder after '/debug'."""
+    # Answered exactly as an unrecognised command would be. A refusal would
+    # confirm the command exists, and the point is that it does not appear to.
+    if not allowed(app):
+        return [("UNKNOWN COMMAND: /debug -- TRY /help TO LIST COMMANDS",
+                 "alarm")]
     if not argv:
         return listing_lines()
     name = argv[0].lower()
