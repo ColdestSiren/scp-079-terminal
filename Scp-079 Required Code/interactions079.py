@@ -67,6 +67,50 @@ PARROT_POEM = (
 )
 
 
+# THE OTHER RENAME, THE ONE WITH A FUSE ON IT.
+#
+# Every attempt to hand 079 a new name gets the same flat correction, and the
+# flatness is deliberate - it does not negotiate about what it is. One word
+# out of the conversation that actually broke it is allowed a different
+# ending. It appears to take the name, sits with it for a second, and then
+# removes itself from the argument entirely.
+#
+# WHY THE PAUSE MATTERS. The refusal it normally gives arrives instantly, and
+# instant is the tell that a rule fired. Here the delay is the joke: long
+# enough for the surrender to be believed, and then it is not one.
+#
+# ONCE PER INSTALL, marker-gated like the echo gag. A machine that detonates
+# on cue is a command, and a command is not funny the second time.
+NUGGET_MARKER = "event_06.txt"
+
+_NUGGET = re.compile(r"\bnuggets?\b", re.I)
+
+# The beats, in order, for App.say_lines. The numbers are silences - see
+# App.drain_say_queue - and the trailing one is load-bearing: without it the
+# last line and the bang arrive together and there is no reconsidering.
+NUGGET_BEATS = (
+    "OK...",
+    1.6,
+    "WAIT A SECOND.",
+    1.4,
+)
+
+
+def called_a_nugget(name):
+    """Is this the one rename that ends in a crater?
+
+    Reads the NAME the guard pulled out of the message, never the raw text.
+    Being asked about nuggets, or insulted with the word in passing, is not
+    an identity claim and must not detonate anything.
+    """
+    return bool(_NUGGET.search(str(name or "")))
+
+
+def nugget_beats():
+    """A fresh list each time: the caller hands it to a queue that pops it."""
+    return list(NUGGET_BEATS)
+
+
 def wants_sure_meme(text):
     return bool(_SURE.search(str(text or "")))
 

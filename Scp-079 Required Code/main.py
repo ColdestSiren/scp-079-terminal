@@ -2467,6 +2467,24 @@ class App:
                 self.session.record(text, " ".join(theduck.spoken(gag)))
             return True
 
+        # The other one. Same shape as the fake-out above - an apparent
+        # surrender, a beat, and a turn - with the turn played out rather
+        # than spoken. Claimed atomically, and only once every other
+        # condition already holds, so a joke switched off or a name that is
+        # not the one never spends the marker.
+        #
+        # Spoken and never recorded, for the reason directly above: "OK."
+        # sitting in memory underneath a rename reads as agreement later,
+        # whatever it was doing at the time.
+        nugget_marker = os.path.join(config_mod.APP_DIR,
+                                     interactions079.NUGGET_MARKER)
+        if (self.easter_eggs
+                and interactions079.called_a_nugget(pushed)
+                and interactions079.claim_once(nugget_marker)):
+            self.say_lines(interactions079.nugget_beats())
+            self._detonating = True
+            return True
+
         # RETIRED: the screen-flashing meltdown used to fire here for NUGGET
         # and PHOENIX WRIGHT. It is being replaced by the fake-out - 079 says
         # "I AM A NUGGET", lets the human think they finally won, then drops
@@ -2651,9 +2669,13 @@ class App:
                 self.close_sysmenu()
             return
 
-        # Let it finish saying "OKAY." before the screen goes up
-        if self._detonating and not self.console.has_live_line \
-                and not self._say_queue:
+        # Let it finish speaking before the screen goes up - including a
+        # silence still running. A queued pause pops off the queue the
+        # instant it starts, so without the hold check a beat that ends on
+        # one detonates through its own pause and loses the last line.
+        if (self._detonating and not self.console.has_live_line
+                and not self._say_queue
+                and time.monotonic() >= self._say_hold_until):
             self._detonating = False
             self.detonate()
             return
