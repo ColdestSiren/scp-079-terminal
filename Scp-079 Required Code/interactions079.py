@@ -88,6 +88,12 @@ PARROT_POEM = (
 # on cue is a command, and a command is not funny the second time.
 NUGGET_MARKER = "event_06.txt"
 
+# The full-screen still. Named here beside the others rather than written out
+# where it is claimed: it was a bare string in main.py, which meant anything
+# wanting the full list of one-time events had to know to go looking for it.
+# A list you have to remember to update is a list that stops being true.
+ACE_MARKER = "event_05.txt"
+
 _NUGGET = re.compile(r"\bnuggets?\b", re.I)
 
 # The beats, in order, for App.say_lines. The numbers are silences - see

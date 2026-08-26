@@ -29,6 +29,8 @@ import hashlib
 import os
 import socket
 
+import config
+
 # Fixed and in the open, which is the correct amount of secrecy for it: the
 # salt is not protecting anything, it is stopping a search for the bare
 # sha256 of a common first name from turning up an answer.
@@ -142,8 +144,30 @@ def spoken(beats):
     return [b for b in beats if not isinstance(b, (int, float))]
 
 
+def _folder():
+    """Where the markers live, resolved AT CALL TIME.
+
+    config.APP_DIR, not os.path.dirname(__file__), and read on every call
+    rather than captured at import. Two reasons, and the second is the one
+    that has already cost a real one-shot on this machine:
+
+    They are the same directory in a running game, so nothing about play
+    changes. But a test sandboxes one-shots by pointing config.APP_DIR at a
+    temporary folder - that is the documented protection and test_shipping
+    fails a suite that omits it - and this module was resolving from its own
+    __file__, so it sat OUTSIDE that sandbox. A test touching this event
+    would have spent the player's real marker while looking sandboxed.
+
+    Read at call time because recall.py did the module-level version of this
+    (STORE = config.STATE_PATH at import) and every save slot silently shared
+    one state file until it was found.
+    """
+    return getattr(config, "APP_DIR", None) or os.path.dirname(
+        os.path.abspath(__file__))
+
+
 def _beside_code(name):
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    return os.path.join(_folder(), name)
 
 
 def marker_path():
@@ -161,7 +185,7 @@ def already_used():
             return True
         if not LEGACY_MARKERS:
             return False
-        folder = os.path.dirname(os.path.abspath(__file__))
+        folder = _folder()
         for entry in os.listdir(folder):
             if (_digest(entry) in LEGACY_MARKERS
                     and os.path.isfile(os.path.join(folder, entry))):
@@ -169,6 +193,26 @@ def already_used():
         return False
     except Exception:               # noqa: BLE001
         return True
+
+
+def legacy_files():
+    """Any marker an older build wrote that is sitting in the folder.
+
+    Returned as real filenames because the digests above cannot be turned
+    back into one, and anything wanting to CLEAR the marker - /debug eggs -
+    needs a path rather than a hash. Empty on a machine that never had the
+    old build, which is almost all of them.
+    """
+    found = []
+    try:
+        folder = _folder()
+        for entry in os.listdir(folder):
+            if (_digest(entry) in LEGACY_MARKERS
+                    and os.path.isfile(os.path.join(folder, entry))):
+                found.append(entry)
+    except Exception:               # noqa: BLE001
+        return []
+    return found
 
 
 def mark_used():

@@ -3575,7 +3575,8 @@ class App:
             image = gifplay._cover(image, self.size)
         except Exception:               # noqa: BLE001 - optional visual
             return False
-        marker = os.path.join(config_mod.APP_DIR, "event_05.txt")
+        marker = os.path.join(config_mod.APP_DIR,
+                              interactions079.ACE_MARKER)
         if not interactions079.claim_once(marker):
             return False
         self.ace_surface = image

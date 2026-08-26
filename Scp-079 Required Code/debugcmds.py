@@ -23,6 +23,8 @@ import os
 
 import config
 import devtrap
+import hostevent
+import interactions079
 import minigame
 import store
 
@@ -104,6 +106,94 @@ def _chain(app, args):
             ("REAL ODDS: %.2f%% PER MINUTE -- ABOUT ONCE EVERY %d HOURS"
              % (chain.chance, int(100.0 / max(chain.chance, 0.0001) / 60.0)),
              "dim")]
+
+
+# The one-time events, in one place, so this command cannot drift from what
+# the game actually claims. Read off the constants that the code claiming
+# them uses - a second hand-written list would go stale the first time one
+# was added and nobody would notice, because the symptom is an event that
+# silently never comes back.
+#
+# FILENAMES ONLY, NO DESCRIPTIONS. The markers are named event_NN precisely
+# so the file listing does not say what happens, and a debug table captioning
+# each one would hand that back in a public repository.
+def _install_markers():
+    names = [interactions079.PARROT_MARKER,
+             interactions079.NUGGET_MARKER,
+             interactions079.ACE_MARKER,
+             hostevent.MARKER]
+    names.extend(hostevent.legacy_files())
+    out = []
+    for name in names:
+        if name not in [n for n, _p in out]:
+            out.append((name, os.path.join(config.APP_DIR, name)))
+    return out
+
+
+# Reset by relaunching the game, so these are cheap to get back - but not
+# while you are mid-conversation and do not want to lose it.
+_RUN_FLAGS = ("_escape_used", "_objection_used", "_meltdown_used")
+
+
+@command("eggs", "/debug eggs [list]",
+         "Re-arm every one-time event. 'list' reports without changing it.")
+def _eggs(app, args):
+    """The one-shots are the hardest thing in here to test.
+
+    Most of them are install-wide on purpose - a marker beside the code
+    survives a memory wipe, a save slot swap and a factory reset, because
+    the whole point is that the second telling ruins it. That also means
+    that once you have seen one while testing, you cannot see it again
+    without knowing which file to delete by hand.
+    """
+    listing = args and args[0].lower().startswith("l")
+    lines = []
+    spent = armed = cleared = 0
+    for name, path in _install_markers():
+        here = os.path.isfile(path)
+        if not here:
+            armed += 1
+            lines.append(("  %-16s ARMED" % name, "dim"))
+            continue
+        spent += 1
+        if listing:
+            lines.append(("  %-16s SPENT" % name, "warn"))
+            continue
+        try:
+            os.remove(path)
+            cleared += 1
+            lines.append(("  %-16s RE-ARMED" % name, "text"))
+        except Exception as exc:            # noqa: BLE001
+            lines.append(("  %-16s COULD NOT REMOVE: %s" % (name, exc),
+                          "alarm"))
+
+    # Reported as what this command DID, not as what it found. The first
+    # version printed the state read before the reset, so a run that had just
+    # cleared three flags still said "spent" against all three.
+    run = []
+    for flag in _RUN_FLAGS:
+        short = flag.strip("_").replace("_used", "")
+        used = bool(getattr(app, flag, False))
+        if listing:
+            run.append("%s=%s" % (short, "spent" if used else "armed"))
+            continue
+        if used:
+            setattr(app, flag, False)
+        run.append("%s=%s" % (short, "re-armed" if used else "armed"))
+
+    head = ("ONE-TIME EVENTS -- %d SPENT, %d ARMED" % (spent, armed)
+            if listing else
+            "RE-ARMED %d OF %d ONE-TIME EVENT(S)"
+            % (cleared, spent + armed))
+    out = [(head, "bright")] + lines
+    out.append(("", None))
+    out.append(("  this run: " + ", ".join(run), "dim"))
+    # Said because the boundary is not obvious and getting it wrong wastes a
+    # test: this re-arms EVENTS. It does not touch hostility, patience, the
+    # lockout, 079's memory or what it owes you.
+    out.append(("  events only -- not hostility, memory or the lockout",
+                "dim"))
+    return out
 
 
 @command("race", "/debug race",
