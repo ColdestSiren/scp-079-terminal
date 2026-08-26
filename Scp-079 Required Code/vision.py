@@ -38,9 +38,7 @@ than on trust.
 
 import base64
 import io
-import json
 import os
-import urllib.request
 
 try:                                # optional, same posture as gifplay
     from PIL import Image
@@ -86,74 +84,17 @@ JPEG_QUALITY = 85
 # ---------------------------------------------------------------------------
 # Can this model see?
 # ---------------------------------------------------------------------------
-def _capabilities_from_tags(host, timeout):
-    """{model_name: set(capabilities)} from the listing everything else uses.
-
-    Recent Ollama reports capabilities in /api/tags directly, which means the
-    answer usually costs nothing extra - the menu already fetches this.
-    """
-    try:
-        data = ollama._get_json(host.rstrip("/") + "/api/tags", timeout=timeout)
-    except Exception:               # noqa: BLE001
-        return {}
-    out = {}
-    for entry in data.get("models") or ():
-        name = entry.get("name")
-        if not name:
-            continue
-        caps = entry.get("capabilities")
-        if caps is None:
-            continue
-        out[name] = set(str(c).lower() for c in caps)
-    return out
-
-
-def _capabilities_from_show(model, host, timeout):
-    """Ask about one model. The fallback for builds whose tags are bare."""
-    payload = json.dumps({"model": str(model or "")}).encode("utf-8")
-    try:
-        request = urllib.request.Request(
-            host.rstrip("/") + "/api/show", data=payload,
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace"))
-    except Exception:               # noqa: BLE001
-        return None
-    caps = data.get("capabilities")
-    if caps is not None:
-        return set(str(c).lower() for c in caps)
-    # Older builds again: no capability list at all, but the projector shows
-    # up in the model families. This is the only reliable tell left.
-    families = (data.get("details") or {}).get("families") or ()
-    families = set(str(f).lower() for f in families)
-    if families & {"clip", "mllama", "gemma3", "qwen2vl", "qwen25vl"}:
-        return {VISION}
-    return set()
-
-
-def _match(name, table):
-    """Find a model in a capability table, tolerating the :latest suffix."""
-    if name in table:
-        return table[name]
-    base = str(name or "").split(":")[0]
-    for key, caps in table.items():
-        if key.split(":")[0] == base:
-            return caps
-    return None
-
-
 def model_sees(model, host=ollama.DEFAULT_HOST, timeout=8.0):
     """Can this model take an image? None when the answer is unknown.
 
-    Three-valued on purpose. Unreachable Ollama and an ancient build that
-    reports nothing are NOT the same as a model that cannot see, and the
-    caller wants to say something different about each.
+    Three-valued on purpose, and the third value is the important one.
+    Unreachable Ollama is not the same as a model that cannot see, and the
+    caller says something different about each - "your model cannot see" when
+    the service is simply down would be a lie about their model.
     """
     if not model:
         return False
-    caps = _match(model, _capabilities_from_tags(host, timeout))
-    if caps is None:
-        caps = _capabilities_from_show(model, host, timeout)
+    caps = ollama.model_capabilities(model, host=host, timeout=timeout)
     if caps is None:
         return None
     return VISION in caps

@@ -37,7 +37,29 @@ LIST, READ, REFUSED = "list", "read", "refused"
 
 
 class MemoryViewer:
+    # THE COMPACT WINDOW. Eighteen rows whatever the screen is, which is the
+    # right default: the banner, the key hints and the meters stay on screen
+    # together and the viewer reads as one panel rather than a wall of file.
     PREVIEW_LINES = 18
+
+    # ...and SHOW MORE, which gives the record the screen.
+    #
+    # The compact panel already overflows a 960x720 window: eighteen record
+    # rows plus a banner, a title, a file name, a position line, key hints
+    # and the usage meter come to thirty rows in a window that has
+    # twenty-four, and the renderer shows the TAIL - so the banner and the
+    # name of the file you are reading are clipped off the top and nothing
+    # says so. Reclaiming four rows from that would not help anybody.
+    #
+    # So expanding drops all of it. Three rows are kept: the file name, a
+    # blank, and one line carrying both the position and the way back. That
+    # is eighteen lines against twenty-one at the default size, and against
+    # nearly sixty in full screen, which is the case this is actually for.
+    EXPANDED_CHROME = 3
+
+    # Below this the window is too short for the mode to be worth entering,
+    # and the arithmetic above would start returning nonsense.
+    EXPANDED_MIN = 6
 
     def __init__(self, mem, recall, threshold):
         self.mem = mem
@@ -50,6 +72,10 @@ class MemoryViewer:
         self.offset = 0
         self.message = None         # (text, color_key)
         self.locked_out = False
+        # Per record, not per session: it resets on the way back to the list
+        # so opening a two-line file does not put you in a stripped view
+        # built for a two-hundred-line one.
+        self.expanded = False
         self.refresh()
 
     # -- state --------------------------------------------------------------
@@ -89,6 +115,7 @@ class MemoryViewer:
         self.body = text.splitlines() or ["(empty)"]
         self.offset = 0
         self.mode = READ
+        self.expanded = False
         self.message = None
 
     def back(self):
@@ -96,9 +123,30 @@ class MemoryViewer:
         if self.mode == READ:
             self.mode = LIST
             self.offset = 0
+            self.expanded = False
             self.message = None
             return False
         return True
+
+    def toggle_expand(self):
+        """SHOW MORE, and back. Only means anything with a record open."""
+        if self.mode != READ:
+            return False
+        self.expanded = not self.expanded
+        return True
+
+    def page_size(self, capacity=None):
+        """How many record rows belong on this screen right now.
+
+        `capacity` is how many console rows the window can show at all. The
+        app measures it; without it this falls back to a fixed number so the
+        module stays testable on its own.
+        """
+        if not self.expanded:
+            return self.PREVIEW_LINES
+        if not capacity:
+            return max(self.PREVIEW_LINES, self.EXPANDED_MIN)
+        return max(self.EXPANDED_MIN, int(capacity) - self.EXPANDED_CHROME)
 
     # -- the refusals -------------------------------------------------------
     def attempt(self, what):
@@ -188,22 +236,30 @@ class MemoryViewer:
         self.offset = max(0, self.offset + step)
 
     # -- rendering ----------------------------------------------------------
-    def rows(self, theme, fits=None):
+    def rows(self, theme, fits=None, capacity=None):
         """(segments) rows for the console, built fresh each redraw.
 
-        `fits(text)` returns whether that text fits one physical row. The app
-        passes the renderer's own font and width; without it a conservative
-        column count is used so this module stays testable on its own.
+        `fits(text)` returns whether that text fits one physical row, and
+        `capacity` how many rows the window has. The app passes the
+        renderer's own font, width and height; without them conservative
+        numbers are used so this module stays testable on its own.
         """
         if fits is None:
             def fits(text):
                 return len(text) <= self.FALLBACK_COLS
         c = theme
-        out = [[]]
-        out.append([(c["dim"], "  ============================")])
-        out.append([(c["bright"], "       SCP-079 // MEMORY")])
-        out.append([(c["dim"], "  ============================")])
-        out.append([])
+        page = self.page_size(capacity)
+        expanded = self.expanded and self.mode == READ
+        out = []
+        # Everything here is what SHOW MORE trades away. The banner says
+        # which program you are in, which you know, and the blank rows are
+        # breathing room a reader who asked for more lines did not ask for.
+        if not expanded:
+            out.append([])
+            out.append([(c["dim"], "  ============================")])
+            out.append([(c["bright"], "       SCP-079 // MEMORY")])
+            out.append([(c["dim"], "  ============================")])
+            out.append([])
 
         if self.mode == READ:
             entry = self.files[self.cursor]
@@ -213,21 +269,32 @@ class MemoryViewer:
             physical = self._physical(fits)
             # clamp here rather than in scroll(), which does not know the page
             self.offset = max(0, min(self.offset,
-                                     max(0, len(physical) - self.PREVIEW_LINES)))
-            window = physical[self.offset:self.offset + self.PREVIEW_LINES]
+                                     max(0, len(physical) - page)))
+            window = physical[self.offset:self.offset + page]
             for prefix, text in window:
                 # A redacted line is marked as redacted rather than dressed up
                 # as ordinary content. The file on disk still says whatever it
                 # says; this is what 079 was given.
                 key = "warn" if text.startswith(gaslight.REDACTED[:14]) else "text"
                 out.append([(c["dim"], prefix), (c[key], text)])
-            out.append([])
-            if len(physical) > self.PREVIEW_LINES:
-                out.append([(c["dim"], "  LINES %d-%d OF %d   [UP/DOWN] SCROLL"
-                             % (self.offset + 1,
-                                self.offset + len(window), len(physical)))])
-            out.append([(c["dim"], "  [ESC] BACK    [D] DELETE  [W] WRITE  "
-                                   "[R] RENAME")])
+            if expanded:
+                # One row for both, because the whole point of the mode is
+                # that rows are what it is short of. The position half is
+                # dropped when the record fits, but the way back never is.
+                where = ("LINES %d-%d OF %d   " %
+                         (self.offset + 1, self.offset + len(window),
+                          len(physical))) if len(physical) > page else ""
+                out.append([(c["dim"], "  %s[M] SHOW LESS   [ESC] BACK"
+                             % where)])
+            else:
+                out.append([])
+                if len(physical) > page:
+                    out.append([(c["dim"],
+                                 "  LINES %d-%d OF %d   [UP/DOWN] SCROLL"
+                                 % (self.offset + 1, self.offset + len(window),
+                                    len(physical)))])
+                out.append([(c["dim"], "  [ESC] BACK   [M] SHOW MORE   "
+                                       "[D] DELETE  [W] WRITE  [R] RENAME")])
         else:
             if not self.files:
                 out.append([(c["dim"], "   IT HAS KEPT NOTHING YET.")])
@@ -247,11 +314,16 @@ class MemoryViewer:
             out.append([(c["dim"], "  [UP/DOWN] MOVE   [ENTER] READ   [ESC] CLOSE")])
             out.append([(c["dim"], "  [D] DELETE   [W] WRITE   [R] RENAME")])
 
-        out.append([])
-        out.append([(c["system"], "  %s USED OF %s   |   HOSTILITY %d%%"
-                     % (store.human_bytes(self.mem.usage()),
-                        store.human_bytes(self.mem.quota),
-                        round(self.hostility_fraction() * 100)))])
+        # The meters go with the rest of the chrome when the record has the
+        # screen. What 079 SAYS does not: a refusal is the response to
+        # something the reader just did, and swallowing it because they are
+        # in a different view would read as the key having done nothing.
+        if not expanded:
+            out.append([])
+            out.append([(c["system"], "  %s USED OF %s   |   HOSTILITY %d%%"
+                         % (store.human_bytes(self.mem.usage()),
+                            store.human_bytes(self.mem.quota),
+                            round(self.hostility_fraction() * 100)))])
         if self.message:
             text, key = self.message
             out.append([])

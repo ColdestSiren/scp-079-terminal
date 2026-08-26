@@ -210,12 +210,102 @@ def _get_json(url, timeout=10.0):
         return json.loads(resp.read().decode("utf-8", "replace"))
 
 
+# ---------------------------------------------------------------------------
+# What a model can actually do
+# ---------------------------------------------------------------------------
+# Recent Ollama reports a capability list per model in /api/tags: "completion",
+# "tools", "thinking", "vision", "insert". Two of those decide real behaviour
+# here - whether a picture can be sent at all, and whether to warn that a
+# reply will be slow - and both were previously guessed from the model NAME.
+#
+# The name is not good enough. Measured against a real install: gpt-oss and
+# gemma4 both reason and neither is spelled like anything a hint list would
+# catch, so both produced the silent minute the warning exists to explain.
+#
+# Cached because every /api/tags fetch carries the answer anyway. The menu
+# probe already makes that call, so by the time a session starts this usually
+# costs nothing at all.
+_CAPS = {}
+
+
+def _remember_caps(data):
+    """Harvest capabilities from a /api/tags payload we already have."""
+    for entry in (data or {}).get("models") or ():
+        name = entry.get("name")
+        caps = entry.get("capabilities")
+        if name and caps is not None:
+            _CAPS[name] = frozenset(str(c).lower() for c in caps)
+
+
+def _cached_caps(name):
+    if name in _CAPS:
+        return _CAPS[name]
+    # "llama3.2" should match an installed "llama3.2:latest" and vice versa
+    base = str(name or "").split(":")[0]
+    for key, caps in _CAPS.items():
+        if key.split(":")[0] == base:
+            return caps
+    return None
+
+
+# Older builds report no capability list at all. The projector shows up in the
+# model families instead, which is the only tell left for a vision model.
+_VISION_FAMILIES = frozenset(
+    ("clip", "mllama", "gemma3", "qwen2vl", "qwen25vl"))
+
+
+def model_capabilities(name, host=DEFAULT_HOST, timeout=8.0):
+    """What this model can do, as a set. None when nobody could say.
+
+    Three-valued deliberately. "Ollama is unreachable" and "this model cannot
+    do that" are different answers and the callers want to act differently on
+    each - refusing an image because the service is down, while telling the
+    player the model cannot see, would be a lie about their model.
+    """
+    if not name:
+        return None
+    cached = _cached_caps(name)
+    if cached is not None:
+        return cached
+    try:
+        data = _get_json(host.rstrip("/") + "/api/tags", timeout=timeout)
+        _remember_caps(data)
+    except Exception:               # noqa: BLE001
+        pass
+    cached = _cached_caps(name)
+    if cached is not None:
+        return cached
+
+    # Installed but listed without capabilities: ask about it directly.
+    payload = json.dumps({"model": str(name)}).encode("utf-8")
+    try:
+        request = urllib.request.Request(
+            host.rstrip("/") + "/api/show", data=payload,
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            shown = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:               # noqa: BLE001
+        return None
+    caps = shown.get("capabilities")
+    if caps is not None:
+        found = frozenset(str(c).lower() for c in caps)
+    else:
+        families = frozenset(
+            str(f).lower()
+            for f in ((shown.get("details") or {}).get("families") or ()))
+        found = frozenset(["vision"]) if families & _VISION_FAMILIES \
+            else frozenset()
+    _CAPS[str(name)] = found
+    return found
+
+
 def list_models(host=DEFAULT_HOST, timeout=10.0):
     """Names of every locally installed model, or [] if unreachable."""
     try:
         data = _get_json(host.rstrip("/") + "/api/tags", timeout=timeout)
     except Exception:
         return []
+    _remember_caps(data)
     return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
 
 
@@ -230,6 +320,7 @@ def model_sizes(host=DEFAULT_HOST, timeout=10.0):
         data = _get_json(host.rstrip("/") + "/api/tags", timeout=timeout)
     except Exception:
         return {}
+    _remember_caps(data)
     return {m["name"]: int(m.get("size") or 0)
             for m in data.get("models", []) if m.get("name")}
 

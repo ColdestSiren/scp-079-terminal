@@ -1924,6 +1924,23 @@ class App:
         self.thinking.start("greet")
         self.idle.note_activity()
 
+    def model_reasons(self):
+        """Does this model deliberate before it speaks?
+
+        Ollama is asked first; the name is only guessed at when it cannot
+        answer. The name list had a real hole in it - gpt-oss and gemma4 both
+        reason, neither is spelled like anything in it, and a player loading
+        either got no warning and then a silent minute, which is exactly the
+        thing the warning exists to prevent.
+        """
+        caps = ollama.model_capabilities(
+            self.model,
+            host=self.cfg.get("ollama", {}).get("host", ollama.DEFAULT_HOST),
+            timeout=4.0)
+        if caps is None:
+            return tuning_mod.is_reasoning_model(self.model)
+        return "thinking" in caps
+
     def note_reasoning_model(self):
         """Warn, once at the top of the session, that this model deliberates.
 
@@ -1937,7 +1954,7 @@ class App:
         either way - reasoning is what the model does, not what this setting
         turns on.
         """
-        if not tuning_mod.is_reasoning_model(self.model):
+        if not self.model_reasons():
             return
         c = self.theme
         self.console.blank()
@@ -2503,12 +2520,23 @@ class App:
             return True
 
         # RETIRED: the screen-flashing meltdown used to fire here for NUGGET
-        # and PHOENIX WRIGHT. It is being replaced by the fake-out - 079 says
-        # "I AM A NUGGET", lets the human think they finally won, then drops
-        # it - which is a better beat and needs no photosensitivity warning
-        # in front of it. meltdown.py is kept because the fake-out will reuse
-        # its timing machinery. Identity enforcement below is unchanged and
-        # is the part that actually matters.
+        # and PHOENIX WRIGHT. Nothing replaces it in this position, and that
+        # is a decision rather than an omission.
+        #
+        # A fake-out was planned for the slot - 079 appears to take the name,
+        # then drops it - and has been dropped because it is already here
+        # twice. theduck.py does the surrender and the turnaround, and the
+        # one-time event above does the surrender and something louder. A
+        # third telling of the same beat would make the joke a mechanic,
+        # which is the one way to kill it.
+        #
+        # meltdown.py stays. It is the only nonblocking hold-a-beat state
+        # machine in the project, the screenshot stages drive it, and the
+        # photosensitivity notes in it are worth keeping written down
+        # whether or not anything currently flashes.
+        #
+        # Identity enforcement below is unchanged and is the part that
+        # actually matters.
 
         if self.patience.level <= 0.0:
             # Out of patience. It says so once, plainly, and goes.
@@ -3753,11 +3781,26 @@ class App:
         max_width = (self.size[0] - self.renderer.MARGIN_LEFT
                      - self.renderer.MARGIN_RIGHT)
         fits = lambda text: self.font.size(text)[0] <= max_width
-        for row in self.memviewer.rows(self.theme, fits=fits):
+        # How many rows this window can actually show. SHOW MORE is only
+        # worth anything if it knows that, and it changes with the window
+        # size and with full screen.
+        capacity = getattr(self.renderer, "max_visible", None)
+        for row in self.memviewer.rows(self.theme, fits=fits,
+                                       capacity=capacity):
             if row:
                 self.console.write_segments(row)
             else:
                 self.console.blank()
+
+    def memview_page(self):
+        """A page of the record, as the viewer is currently showing it.
+
+        Page Up and Page Down used the compact 18 no matter what was on
+        screen, so with SHOW MORE on they skipped a page and a half of a
+        record every press and left nothing overlapping to read across.
+        """
+        return self.memviewer.page_size(
+            getattr(self.renderer, "max_visible", None))
 
     def close_memory_viewer(self, kicked=False):
         if self.memviewer is None or self.stage != "memview":
@@ -4429,12 +4472,17 @@ class App:
                     self.memviewer.move(1)
             elif event.key == pygame.K_PAGEUP \
                     and self.memviewer.mode == memoryview_mod.READ:
-                self.memviewer.scroll(-self.memviewer.PREVIEW_LINES)
+                self.memviewer.scroll(-self.memview_page())
             elif event.key == pygame.K_PAGEDOWN \
                     and self.memviewer.mode == memoryview_mod.READ:
-                self.memviewer.scroll(self.memviewer.PREVIEW_LINES)
+                self.memviewer.scroll(self.memview_page())
             elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self.memviewer.open_selected()
+            elif pressed == "m":
+                # SHOW MORE. Silent on the file list, where there is nothing
+                # to show more OF.
+                if self.memviewer.toggle_expand():
+                    self.audio.play("relay", 0.5)
             elif pressed in ("d", "w", "r"):
                 # always refused - the keys exist so the refusal can happen
                 kind = {"d": "delete", "w": "write", "r": "rename"}[pressed]

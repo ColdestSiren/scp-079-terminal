@@ -204,8 +204,13 @@ class SubliminalFlash:
         self.started = False      # leading edge, for the sound
         self._fresh = False
         self._next = random.uniform(self.min_gap, self.max_gap)
-        if self.enabled:
-            self.image = self._load(data_dirs)
+        # Loaded whatever the switches say, because the flash is not the only
+        # thing that wants it: the update notice puts 079's face in the corner
+        # so it is obvious at a glance what the alert is FOR. Somebody who
+        # turned the jokes off so they would not be jumped at did not ask for
+        # their update notices to lose their picture, and tying the two
+        # together made one switch quietly govern two unrelated things.
+        self.image = self._load(data_dirs)
         self.enabled = self.enabled and self.image is not None
 
     def _load(self, data_dirs):
