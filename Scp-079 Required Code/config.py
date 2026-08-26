@@ -218,6 +218,21 @@ DEFAULTS = {
         "enabled": True,
     },
 
+    # BETA. Showing 079 a picture, which only does anything at all on a model
+    # that can take one - llama3.2 cannot, qwen3.6 can. See vision.py.
+    #
+    # Left ON despite being beta, because it costs nothing on a model that
+    # cannot see: the capability is checked before any bytes move, and the
+    # answer is a refusal on screen rather than a broken turn or, far worse,
+    # 079 confidently describing an image it was never sent.
+    "images": {
+        "enabled": True,
+        # Longest edge after downscaling, before the picture goes anywhere.
+        # Vision models tile their input down to about this size regardless,
+        # so a larger number costs context and time and buys no detail.
+        "max_edge": 896,
+    },
+
     # The last resort when a model is eating the machine. OFF by default: it
     # force-closes a running game, which is a rude thing to do to someone
     # mid-conversation and should only happen to a person who asked for it.

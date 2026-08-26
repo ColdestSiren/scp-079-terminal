@@ -22,6 +22,7 @@ import ollama
 import profile079
 import sysmenu
 import tools
+import vision
 import tuning
 import whoami
 
@@ -351,7 +352,7 @@ class ChatSession:
         history = gaslight.safe_history(self.history)
         messages = [{"role": "system", "content": system}]
         if self.mem is None:
-            return messages + history
+            return self._attach_image(messages + history)
 
         brief = {"role": "system",
                  "content": tools.capability_brief(
@@ -371,7 +372,26 @@ class ChatSession:
         self._brief_text = brief["content"]
         # slot it just before the newest turn; on an empty history it is simply
         # appended, which is the same thing
-        return messages + history[:-1] + [brief] + history[-1:]
+        return self._attach_image(messages + history[:-1] + [brief]
+                                  + history[-1:])
+
+    def _attach_image(self, messages):
+        """Hang this turn's picture on the message being answered.
+
+        Done HERE rather than in the stored history, and that placement is
+        the whole design. safe_history() rebuilds every message as role and
+        content and drops anything else, which is exactly the behaviour that
+        stops a restored save from dragging base64 back into a prompt. So the
+        image has to be added after that rebuild, on the way out, once.
+        """
+        image = getattr(self, "_image", None)
+        if not image:
+            return messages
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                message["images"] = [image]
+                break
+        return messages
 
     def on_record(self):
         """Everything 079 can honestly claim to know, as one blob of text.
@@ -416,18 +436,33 @@ class ChatSession:
     def busy(self):
         return self.job is not None and not self.job.done.is_set()
 
-    def send(self, text, log_as=None, remember=True):
-        """Start a reply. Returns False if a reply is already in flight."""
+    def send(self, text, log_as=None, remember=True, image=None,
+             image_label=None):
+        """Start a reply. Returns False if a reply is already in flight.
+
+        `image` is base64 for a model that can actually take one - see
+        vision.py. It is attached to THIS request and to nothing else. What
+        goes into the history in its place is a sentence saying a picture was
+        shown and what it was called, so the conversation still reads
+        correctly next session without a megabyte of base64 in the save.
+        """
         if self.busy:
             return False
-        self.history.append({"role": "user", "content": text})
+        stored = text
+        if image:
+            note = vision.history_note(image_label)
+            stored = ("%s\n%s" % (text, note)) if text else note
+        self.history.append({"role": "user", "content": stored})
         self._trim()
         if log_as:
             self.log(log_as, text)
         # the synthetic greeting prompt is an instruction, not something the
         # human said - it must not end up in what 079 "remembers"
         if remember and self.recall is not None:
-            self.recall.remember("user", text)
+            self.recall.remember("user", stored)
+        # Cleared by the next send whatever happens, so a picture can never
+        # ride a second turn by accident.
+        self._image = image or None
         self._filter = ThinkFilter()
         self._raw_so_far = ""       # untouched stream, for fence detection
         self._thinking = ""

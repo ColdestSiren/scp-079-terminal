@@ -88,6 +88,7 @@ terminal instead. That is what the slash is for.
 /copy              take the last code block
 /update            check for a newer version
 /feedback          send a bug or an idea to the author
+/credits           who built this, and whose character 079 is
 /fullscreen        toggle full screen (F11 does the same)
 /exit              end the session
 ```
@@ -96,6 +97,23 @@ Type `Help!` on its own and the panel appears too.
 
 079's own settings have no command. If you want to see them, **ask it**, in
 words. It will refuse if it is annoyed with you.
+
+### Showing it a picture
+
+**Beta, and it depends entirely on your model.** Drag an image onto the
+window, or copy one and press `Ctrl+V`. A preview appears in the corner;
+press Enter to send it, Escape to change your mind.
+
+Most models cannot see. `llama3.2` cannot; `qwen3.6` and other models Ollama
+marks with the `vision` capability can. The terminal checks before anything
+is sent and tells you if the answer is no, because the alternative is worse
+than an error: a model that cannot see, handed an image, does not fail. It
+writes a confident description of nothing.
+
+The picture goes with that one message and is not kept. What stays in 079's
+memory is a line saying you showed it something and what the file was
+called. Turn the whole thing off in `[S] SETTINGS` if you would rather the
+window did not accept drops at all.
 
 ---
 

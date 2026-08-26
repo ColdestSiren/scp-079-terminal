@@ -78,6 +78,7 @@ import thinkbox
 import tuning as tuning_mod
 import tools
 import updater as updater_mod
+import vision
 import version as version_mod
 import watchdog as watchdog_mod
 
@@ -424,6 +425,10 @@ class App:
         self.ace_remaining = 0.0
         self.ace_channel = None
         self._detonating = False    # said OKAY, waiting to blow up
+        # A picture waiting to go with the next message. One at a
+        # time on purpose: two would need an order and a way to
+        # remove one, and this is a terminal, not a mail client.
+        self.pending_image = None
         self.explosion = None
         self.fire = None
         self.maintenance = None  # second channel, created with the session
@@ -2270,7 +2275,14 @@ class App:
             self.audio.play("relay", 0.6)
             return
 
-        self.session.send(text)
+        data, label = self.take_pending_image()
+        # Passed only when there is one. Almost every message has no picture,
+        # and a send that names an argument it does not have is a send that
+        # breaks every other implementation of a session for no reason.
+        if data:
+            self.session.send(text, image=data, image_label=label)
+        else:
+            self.session.send(text)
         self.thinking.start()
 
     @staticmethod
@@ -3207,6 +3219,197 @@ class App:
                 return index
         return None
 
+    # -- pictures ----------------------------------------------------------
+    # BETA. Everything about whether this does anything lives in vision.py;
+    # what lives here is the part the player touches - dropping a file on the
+    # window, or pasting one - and the refusals, which are the whole reason
+    # the capability is checked up front. A model that cannot see, handed an
+    # image field, does not error: it writes a confident description of
+    # nothing. That failure is indistinguishable from success and it is the
+    # one thing this must never do.
+
+    # What is sent when a picture is submitted with no message attached to
+    # it. The human's words, not 079's - the picture on its own is still a
+    # turn, and a turn needs something in it.
+    BARE_IMAGE_LINE = "LOOK AT THIS."
+
+    # Longest edge of the confirmation thumbnail. Small: it is there so a
+    # wrong drag is obvious before it is sent, not to look at.
+    THUMB_EDGE = 132
+
+    def images_enabled(self):
+        return bool(self.cfg.get("images", {}).get("enabled", True))
+
+    def image_stage(self):
+        """Only while there is somebody to show it to."""
+        return self.stage in ("chat", "greet") and self.session is not None
+
+    def refuse_image(self, message):
+        self.console.blank()
+        self.console.write("  [SYS] %s" % message, self.theme["warn"])
+        self.audio.play("beep", 0.6)
+
+    def image_ready(self):
+        """May a picture be taken right now, and if not, why not.
+
+        The wrong SCREEN is answered with silence: a file landing on the menu
+        is not a message to anybody and does not deserve a refusal. Every
+        other no is said out loud, because the player deliberately dropped
+        something and silence reads as the drop having failed.
+        """
+        if not self.image_stage():
+            return False
+        if not self.images_enabled():
+            self.refuse_image("IMAGE INPUT IS TURNED OFF IN SETTINGS.")
+            return False
+        if self.busy() or self._say_queue:
+            # Mid-reply the picture would be attached to a turn that has
+            # already gone. Refusing is honest; queuing it silently is not.
+            self.refuse_image("IT IS ALREADY ANSWERING. WAIT.")
+            return False
+        return True
+
+    def accept_image(self, loader):
+        """Shared tail of dropping and pasting. `loader` does the reading."""
+        if not self.image_ready():
+            return False
+
+        sees = vision.model_sees(
+            self.model, host=self.cfg.get("ollama", {}).get(
+                "host", ollama.DEFAULT_HOST))
+        if sees is False:
+            self.refuse_image("%s CANNOT SEE. LOAD A VISION MODEL."
+                              % self.model.upper())
+            return False
+        if sees is None:
+            self.refuse_image("CANNOT TELL WHETHER %s CAN SEE. NOT SENDING."
+                              % self.model.upper())
+            return False
+
+        try:
+            data, label, original = loader()
+        except vision.VisionError as exc:
+            self.refuse_image(str(exc))
+            return False
+        except Exception:               # noqa: BLE001 - never crash on a drag
+            self.refuse_image("THAT COULD NOT BE READ.")
+            return False
+
+        self.pending_image = {
+            "data": data,
+            "label": label,
+            "size": original,
+            "thumb": self.build_thumb(data),
+        }
+        self.console.blank()
+        self.console.write(
+            "  [SYS] IMAGE READY -- %s  %dx%d" % (label, original[0],
+                                                  original[1]),
+            self.theme["dim"])
+        self.console.write(
+            "  [SYS] PRESS ENTER TO SHOW IT. ESC TO DROP IT.",
+            self.theme["dim"])
+        self.sys_notice("IMAGE QUEUED -- %s" % label)
+        self.audio.play("relay", 0.6)
+        return True
+
+    def build_thumb(self, data):
+        """A small copy of exactly what is going to be sent.
+
+        Decoded back out of the base64 rather than re-read from the file, so
+        what the player is shown is the thing 079 will get - downscaled,
+        flattened, and all. A preview of the original would hide a bad
+        conversion instead of revealing it.
+        """
+        try:
+            image = pygame.image.load(
+                vision.preview_stream(data), "preview.jpg").convert()
+        except Exception:               # noqa: BLE001 - preview is optional
+            return None
+        width, height = image.get_size()
+        longest = max(width, height, 1)
+        if longest > self.THUMB_EDGE:
+            scale = float(self.THUMB_EDGE) / float(longest)
+            image = pygame.transform.smoothscale(
+                image, (max(1, int(width * scale)),
+                        max(1, int(height * scale))))
+        return self.phosphor(image)
+
+    def phosphor(self, image):
+        """Put a picture on this screen's one colour.
+
+        A full-colour photograph is the only thing that would ever look
+        pasted onto a monochrome tube, and the preview does not need colour
+        to do its job - it is answering "is that the right picture", which
+        shape and tone answer perfectly well. Failing the conversion returns
+        the picture untouched: a wrongly coloured preview beats none.
+        """
+        try:
+            grey = pygame.transform.grayscale(image)
+            grey.fill(self.theme["text"], special_flags=pygame.BLEND_MULT)
+            return grey
+        except Exception:               # noqa: BLE001 - older pygame
+            return image
+
+    def attach_dropped_file(self, path):
+        if not self.image_ready():
+            return
+        if not vision.looks_like_image(path):
+            self.refuse_image("THAT IS NOT A PICTURE.")
+            return
+        edge = int(self.cfg.get("images", {}).get("max_edge",
+                                                  vision.MAX_EDGE))
+        self.accept_image(lambda: vision.load_file(path, edge))
+
+    def attach_clipboard_image(self):
+        edge = int(self.cfg.get("images", {}).get("max_edge",
+                                                  vision.MAX_EDGE))
+        self.accept_image(lambda: vision.from_clipboard(edge))
+
+    def drop_pending_image(self):
+        """Escape, before it is sent. Returns True if there was one."""
+        if self.pending_image is None:
+            return False
+        self.pending_image = None
+        self.console.blank()
+        self.console.write("  [SYS] IMAGE DISCARDED.", self.theme["dim"])
+        self.audio.play("relay", 0.5)
+        return True
+
+    def take_pending_image(self):
+        """Hand the picture over and forget it.
+
+        Called at the ONE place a message actually reaches the model, so a
+        turn intercepted by a guard leaves the picture attached for the next
+        one rather than swallowing it.
+        """
+        pending, self.pending_image = self.pending_image, None
+        if not pending:
+            return None, None
+        return pending["data"], pending["label"]
+
+    def draw_pending_image(self, surface):
+        """The thumbnail, bottom right, while it is still waiting to go."""
+        pending = self.pending_image
+        if not pending or pending.get("thumb") is None:
+            return
+        thumb = pending["thumb"]
+        pad = 8
+        reserved = self.disk.width if self.stage in self.DISK_STAGES else 0
+        x = self.size[0] - reserved - thumb.get_width() - pad - 10
+        y = (self.size[1] - thumb.get_height() - pad - 10
+             - self.renderer.MARGIN_BOTTOM)
+        back = pygame.Surface((thumb.get_width() + pad * 2,
+                               thumb.get_height() + pad * 2))
+        back.fill((0, 0, 0))
+        back.set_alpha(210)
+        surface.blit(back, (x - pad, y - pad))
+        pygame.draw.rect(surface, self.theme["dim"],
+                         (x - pad, y - pad,
+                          thumb.get_width() + pad * 2,
+                          thumb.get_height() + pad * 2), 1)
+        surface.blit(thumb, (x, y))
+
     def sys_notice(self, text):
         """Terminal chatter. Goes to the side panel, NOT the transcript.
 
@@ -4034,6 +4237,12 @@ class App:
                 self.credits_panel = None
                 self.audio.play("relay", 0.6)
                 return
+            # A picture waiting to be sent is the same shape of thing: the
+            # line on screen offers ESC as the way to change your mind about
+            # it, and quitting the game instead would be an unkind reading of
+            # that offer.
+            if self.drop_pending_image():
+                return
             # the picker offers ESC as "back", so it must not fall through to
             # the global quit the way every other screen does
             if self.stage == "slots":
@@ -4354,8 +4563,20 @@ class App:
             return
 
         if self.stage == "chat" and not self.busy() and not self._say_queue:
+            # Ahead of the input box, or the paste is swallowed as a
+            # keystroke. Ctrl+V arrives with a non-printable unicode so the
+            # buffer would ignore it anyway, but relying on that is fragile.
+            if event.key == pygame.K_v and (event.mod & pygame.KMOD_CTRL):
+                self.attach_clipboard_image()
+                self.idle.note_activity()
+                return
             submitted = self.text_input.handle_key(event)
             if submitted is not None:
+                # A picture on its own is a whole message. Without this,
+                # dropping one and pressing Enter does nothing, which reads
+                # as the drop having failed rather than as an empty line.
+                if not submitted.strip() and self.pending_image:
+                    submitted = self.BARE_IMAGE_LINE
                 self.audio.play("relay", 0.6)
                 self.submit(submitted)
             elif event.unicode and event.unicode.isprintable():
@@ -4546,6 +4767,8 @@ class App:
                            held_back=self.renderer.scrollback > 0,
                            patience=self.patience.level if self.patience.enabled else None,
                            patience_label=self.patience.label())
+        if self.stage in ("greet", "chat"):
+            self.draw_pending_image(content)
         # drawn before the CRT pass so it scans and blooms with everything
         # else instead of looking like a modern dialog pasted on top
         if self.help is not None:
@@ -4753,6 +4976,8 @@ class App:
                 elif event.type == pygame.MOUSEWHEEL and self.stage in self.DISK_STAGES:
                     # wheel up is positive; scrolling up means going older
                     self.scroll_view(-3 * event.y)
+                elif event.type == pygame.DROPFILE:
+                    self.attach_dropped_file(event.file)
             self.update(dt)
             self.draw(dt)
         # Every exit path saves - the farewell, the window close button, and

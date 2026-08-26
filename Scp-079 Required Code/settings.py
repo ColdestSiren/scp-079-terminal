@@ -124,6 +124,7 @@ class SettingsScreen:
             ("WATCHDOG LIMIT", self._val_wd_pct, self._set_wd_pct),
             ("WATCHDOG PATIENCE", self._val_wd_secs, self._set_wd_secs),
             ("LET 079 TOUCH THIS PC", self._val_extended, self._set_extended),
+            ("SHOW 079 IMAGES (BETA)", self._val_images, self._set_images),
             ("MINIGAMES", self._val_minigames, self._set_minigames),
             (None, None, None),
             # Separate from NETWORK ACCESS on purpose. That row is about what
@@ -274,6 +275,18 @@ class SettingsScreen:
         self.message = (("REASONING MODELS WILL SHOW THEIR WORKING."
                          if ol["think_on_reasoning"]
                          else "REASONING STAYS HIDDEN."), "dim")
+
+    # Beta, and the row says so. Off is for anyone whose model cannot see
+    # anyway and would rather not have the drop target armed at all.
+    def _val_images(self):
+        return "ON" if self.cfg.get("images", {}).get("enabled", True) else "OFF"
+
+    def _set_images(self, step):
+        block = self.cfg.setdefault("images", {})
+        block["enabled"] = not block.get("enabled", True)
+        self.message = (("DRAG OR PASTE A PICTURE INTO THE WINDOW."
+                         if block["enabled"]
+                         else "PICTURES WILL NOT BE ACCEPTED."), "dim")
 
     def _val_eggs(self):
         return "ON" if self.cfg.get("effects", {}).get("easter_eggs", True) else "OFF"

@@ -54,6 +54,10 @@ FOOTNOTES = [
     "079 manages its own memory. You do not command it.",
     "Watch the [DISK] lines to see what it keeps.",
     "Capacity and formatting live in [S] SETTINGS.",
+    # No command for this one, which is why it is a note and not an entry.
+    # It is also the only feature here that can be present and still do
+    # nothing, so the condition is said in the same breath as the keys.
+    "Drag a picture in, or Ctrl+V, if your model can see. Beta.",
 ]
 # The SCP credit deliberately does NOT live here. The command list already
 # fills this panel on a 960x720 window, so anything appended is pushed off
