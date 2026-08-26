@@ -116,7 +116,10 @@ Scp-079 Required Code/assets/cache/media/*
 !Scp-079 Required Code/assets/cache/media/fx_05.png
 !Scp-079 Required Code/assets/cache/media/fx_05.mp3
 
-# One-time gag marker. Must NOT ship, or it is already spent.
+# One-time event markers. Must NOT ship, or they are already spent.
+# duck.txt is the name an older build wrote and is still honoured, so a
+# machine that already had that event does not get handed it a second time.
+Scp-079 Required Code/event_07.txt
 Scp-079 Required Code/duck.txt
 Scp-079 Required Code/parroted.txt
 Scp-079 Required Code/event_05.txt

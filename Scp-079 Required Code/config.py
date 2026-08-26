@@ -302,41 +302,27 @@ DEFAULTS = {
         "share_login_name": True,
     },
 
-    "devtrap": {
-        # Kept under this name because /debug and the save slots read it,
-        # and renaming a key everyone's config.json already has would
-        # silently reset it for every existing install.
-        #
-        # There WAS a trap here: Ctrl+F12 clears a lockout, the shortcut
-        # got told to a friend, and on anyone else's machine it sprang
-        # instead of working - a taunt and an unskippable hour. It is
-        # gone. The shortcut is an escape from a wait, the lockout screen
-        # now names it to whoever hits their first timeout, and a game
-        # that advertises a way out and then punishes you for taking it
-        # is lying to you.
-        #
-        # What is left is who owns /debug and the code-locked save slots,
-        # matched on the Windows account name - the only identity a local
-        # game can check without inventing an account system.
-        "owners": [],
-    },
-
-    "debug": {
-        # /debug reaches past everything the game is about: it sets
-        # hostility to whatever you like, clears a lockout, fills the
-        # disk. It was open to anyone who typed it, which quietly made
-        # every meter in the game advisory.
-        #
-        # Matched on the same Windows account as the block above, so
-        # there is one definition of "the author" rather than two that
-        # drift. Independent of the Ctrl+F12 shortcut, which works for
-        # everyone: skipping a wait is not a reason to hand out /debug.
-        #
-        # Honest about what this is worth - it is an account name, and
-        # anyone with the source can delete the check. It stops a friend
-        # who was told the command, which is the whole of the job.
-        "owner_only": True,
-    },
+    # NO "devtrap" OR "debug" SECTION, AND THAT IS THE POINT.
+    #
+    # There were two keys here: devtrap.owners, naming extra accounts that
+    # count as the author, and debug.owner_only, switching the /debug gate
+    # off outright. Both were written as a convenience for testing on another
+    # machine, and both handed out the thing they were guarding.
+    #
+    # /debug sets hostility to whatever you like, clears a lockout and fills
+    # the disk - it makes every meter in the game advisory. The same check
+    # guards the Ctrl+F12 bypass on a code-locked save slot. config.json is
+    # user-editable and sits in the folder beside the game, so "put
+    # owner_only: false in config.json" is exactly as easy to pass on as the
+    # command it protects, which left the gate open to precisely the person
+    # it was built to stop.
+    #
+    # The list of owners lives in devtrap.OWNERS now, in source, for the same
+    # reason version.py is not in here: a value that switches a protection
+    # off must not be sitting in the file the player is invited to edit.
+    #
+    # (The Ctrl+F12 LOCKOUT bypass is unaffected and still works for
+    # everyone. Skipping a wait is not the same favour as /debug.)
 
     "updates": {
         # "owner/name" on GitHub - this project's own home, which is also

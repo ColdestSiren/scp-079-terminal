@@ -50,8 +50,22 @@ def pressed_bypass(event):
     return event.key == BYPASS_KEY and bool(event.mod & BYPASS_MOD)
 
 
-# The account that owns /debug and its own save slots. Overridable in config
-# so the check can be exercised from another machine.
+# The accounts that own /debug and the code-locked save slots.
+#
+# IN SOURCE, DELIBERATELY, AND NOT IN config.json. This used to read a
+# devtrap.owners list and a debug.owner_only switch out of the config file,
+# which put the key to the gate in a plain text file sitting in the same
+# folder as the game. "Type /debug" and "set owner_only to false in
+# config.json" are the same sentence to pass on to somebody, so the override
+# defeated the check for exactly the person the check is for. version.py is
+# kept out of config.json for the same reason.
+#
+# Still honest about the ceiling: this is a Windows account name and anyone
+# with the source can edit this line. That was always true and is not what
+# the check is for. It stops a friend who was told the command.
+OWNERS = frozenset(("colde",))
+
+# Kept as the old name because save data and older code refer to it.
 DEFAULT_OWNER = "colde"
 
 
@@ -63,10 +77,10 @@ def current_user():
 
 
 def is_owner(cfg=None):
-    """Is the person at this keyboard the one the shortcut belongs to?"""
-    allowed = {DEFAULT_OWNER}
-    extra = ((cfg or {}).get("devtrap") or {}).get("owners") or []
-    for name in extra:
-        if str(name).strip():
-            allowed.add(str(name).strip().lower())
-    return current_user() in allowed
+    """Is the person at this keyboard the one the shortcut belongs to?
+
+    `cfg` is accepted and ignored. It carried the override described above,
+    and the argument is kept so a caller that still passes one is not a
+    crash - but nothing in the config file can widen this any more.
+    """
+    return current_user() in OWNERS

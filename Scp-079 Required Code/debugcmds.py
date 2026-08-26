@@ -334,11 +334,13 @@ def allowed(app=None):
     Honest about what that is worth: it is an account name, and anyone with
     the source can delete this function. It stops a friend who was told the
     command, which is the whole of what it is for.
+
+    THERE IS NO CONFIG SWITCH. There was one - debug.owner_only - and it made
+    the gate pointless: config.json is user-editable and sits in the folder
+    beside the game, so telling somebody to flip it is no harder than telling
+    them the command it guards. See devtrap.OWNERS.
     """
-    cfg = getattr(app, "cfg", None) or {}
-    if not (cfg.get("debug") or {}).get("owner_only", True):
-        return True
-    return devtrap.is_owner(cfg)
+    return devtrap.is_owner()
 
 
 def run(app, argv):

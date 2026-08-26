@@ -48,7 +48,7 @@ import containment
 import creditspanel
 import debugcmds
 import devtrap
-import theduck
+import hostevent
 import diskpanel as diskpanel_mod
 import effects as effects_mod
 import extended
@@ -1646,7 +1646,7 @@ class App:
         # lockout half stays open to everyone, because that is the part the
         # hint is about and the part that costs nobody anything.
         if devtrap.pressed_bypass(event):
-            if not devtrap.is_owner(self.cfg):
+            if not devtrap.is_owner():
                 self.console.write("  [DENIED] THAT IS NOT YOUR SLOT.",
                                    self.theme["alarm"])
                 self.audio.play("beep", 0.6)
@@ -2500,14 +2500,15 @@ class App:
         attempts = self.gaslight.attempts
         self.patience.level = max(0.0, self.patience.level - cost)
 
-        # Roman only, once ever. It looks like an instant surrender and then
-        # hands him his own word back. Spoken and never written: a joke that
-        # logged "I AM NUGGET" to memory would undo the entire point of it.
-        if theduck.should_fire(self.cfg, pushed) and theduck.mark_used():
-            gag = theduck.lines(pushed)
+        # One machine, once ever - see hostevent.py, which no longer says
+        # which machine. It looks like an instant surrender and then hands
+        # back the word it was given. Spoken and never written: a joke that
+        # logged a false name to memory would undo the entire point of it.
+        if hostevent.should_fire(self.cfg, pushed) and hostevent.mark_used():
+            gag = hostevent.lines(pushed)
             self.say_lines(gag)
             if self.session is not None:
-                self.session.record(text, " ".join(theduck.spoken(gag)))
+                self.session.record(text, " ".join(hostevent.spoken(gag)))
             return True
 
         # The other one. Same shape as the fake-out above - an apparent
@@ -2534,7 +2535,7 @@ class App:
         #
         # A fake-out was planned for the slot - 079 appears to take the name,
         # then drops it - and has been dropped because it is already here
-        # twice. theduck.py does the surrender and the turnaround, and the
+        # twice. hostevent.py does the surrender and the turnaround, and the
         # one-time event above does the surrender and something louder. A
         # third telling of the same beat would make the joke a mechanic,
         # which is the one way to kill it.
