@@ -116,14 +116,18 @@ Scp-079 Required Code/assets/cache/media/*
 !Scp-079 Required Code/assets/cache/media/fx_05.png
 !Scp-079 Required Code/assets/cache/media/fx_05.mp3
 
-# One-time event markers. Must NOT ship, or they are already spent.
-# duck.txt is the name an older build wrote and is still honoured, so a
-# machine that already had that event does not get handed it a second time.
-Scp-079 Required Code/event_07.txt
-Scp-079 Required Code/duck.txt
-Scp-079 Required Code/parroted.txt
-Scp-079 Required Code/event_05.txt
-Scp-079 Required Code/event_06.txt
+# One-time event markers live loose in the code folder, and a marker that
+# ships means the event arrives on a fresh install ALREADY SPENT - nobody
+# ever gets it, and nothing on screen says why.
+#
+# So: ignore every loose .txt in there and name the exceptions, rather than
+# listing the markers one by one. Two reasons. A marker added later is
+# covered without anyone having to remember this file, which is how the
+# listed-by-hand approach fails. And the names themselves were a spoiler in
+# a public repository - one of them was a piece of the very string
+# hostevent.py stopped writing down.
+Scp-079 Required Code/*.txt
+!Scp-079 Required Code/requirements.txt
 
 # Local bug-report screenshots. Never publish.
 Issue/

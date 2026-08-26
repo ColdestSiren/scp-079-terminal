@@ -66,7 +66,15 @@ MARKER = "event_07.txt"
 # has the old file and nothing else. Reading only the new name would re-arm
 # it there and tell the joke a second time, which is the one outcome the
 # whole one-shot design exists to prevent.
-LEGACY_MARKERS = ("duck.txt",)
+#
+# Held as a digest for the same reason the two above are: the old filename
+# was a piece of the very string this module stopped writing down, so
+# spelling it out here would have left the rename half done. Matched by
+# hashing what is actually in the folder, which costs one listdir on a
+# rename attempt and nothing at all the rest of the time.
+LEGACY_MARKERS = (
+    "2b11322405056bc8e4192c1597eb510b1a8d486f1445e0db9c6c9e34e1495252",
+)
 
 MARKER_TEXT = (
     "The terminal used its one joke here.\n"
@@ -149,8 +157,14 @@ def already_used():
     is worse than never firing, since the repeat is what ruins it.
     """
     try:
-        for name in (MARKER,) + LEGACY_MARKERS:
-            if os.path.isfile(_beside_code(name)):
+        if os.path.isfile(marker_path()):
+            return True
+        if not LEGACY_MARKERS:
+            return False
+        folder = os.path.dirname(os.path.abspath(__file__))
+        for entry in os.listdir(folder):
+            if (_digest(entry) in LEGACY_MARKERS
+                    and os.path.isfile(os.path.join(folder, entry))):
                 return True
         return False
     except Exception:               # noqa: BLE001
