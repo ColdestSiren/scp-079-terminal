@@ -4,9 +4,17 @@
 # The window, the CRT rendering, audio playback, input.
 pygame>=2.5
 
-# Decodes animated GIFs for the explosion easter egg. pygame.image.load
-# returns only the FIRST frame of a GIF and silently ignores the rest, which
-# looks like it works right up until nothing moves.
-# Optional: without it the game runs normally and the animation just does not
-# play. Setup.bat installs it anyway so the joke works out of the box.
+# Two jobs now.
+#
+# Decoding animated GIFs, because pygame.image.load returns only the FIRST
+# frame of a GIF and silently ignores the rest - which looks like it works
+# right up until nothing moves.
+#
+# And reading, downscaling and re-encoding a picture you show 079, plus
+# taking one off the clipboard. Without Pillow that feature refuses in words
+# rather than half-working.
+#
+# Still optional in the sense that the terminal runs without it: the
+# animation does not play and images are declined. Setup.bat installs it, so
+# the only people who meet either refusal are the ones who installed by hand.
 Pillow>=10.0
