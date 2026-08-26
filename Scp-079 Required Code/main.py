@@ -824,6 +824,11 @@ class App:
         self.console.write("   [ENTER] LAST USED: %s" % self.model, c["dim"])
         self.console.write("   [S]     SETTINGS", c["dim"])
         self.console.write("   [V]     SAVES", c["dim"])
+        # Up here with the other doors rather than as a dim afterthought at
+        # the foot of the screen. The licence asks for attribution wherever
+        # the work is used, and an option in the list is found; a line under
+        # the model notes is scrolled past.
+        self.console.write("   [C]     CREDITS", c["dim"])
         if self.upd_info:
             self.console.write("   [U]     UPDATE AVAILABLE -- %s"
                                % self.upd_info["version"], c["warn"])
@@ -842,17 +847,12 @@ class App:
             self.console.write("   PRIOR SESSIONS ON RECORD: %d" % self.recall.session_count(),
                                c["system"])
             self.console.blank()
-        # A POINTER, NOT THE CREDIT. The names and the SCP attribution used
-        # to print here, four dim lines under the model list, which is the one
-        # place on this screen the eye skips on its way to pressing 1. They
-        # have their own screen now, asked for by name.
-        #
-        # What has to stay is the fact that the screen exists: a credit nobody
-        # can find is the same as a credit that is not there, and the licence
-        # asks for attribution wherever the work is used, not wherever it is
-        # convenient. One line, and it names the command that shows the rest.
-        self.console.write("   TYPE /credits DURING A SESSION FOR CREDITS AND "
-                           "ATTRIBUTION.", c["dim"])
+        # THE NAMES USED TO PRINT HERE, four dim lines under the model list,
+        # which is the one part of this screen the eye skips on its way to
+        # pressing 1. They have their own screen now: [C] above, or /credits
+        # once a session is running. Nothing is left here, because a credit
+        # that is genuinely read once beats a credit that is on screen every
+        # launch and looked at never.
 
     def menu_status(self):
         c = self.theme
@@ -4004,6 +4004,14 @@ class App:
             return
 
         if event.key == pygame.K_ESCAPE:
+            # A panel over the top owns ESC before any stage does. Opening the
+            # credits from the menu and pressing ESC to shut them again would
+            # otherwise quit the game, which is a startling price for having
+            # read a name.
+            if self.credits_panel is not None:
+                self.credits_panel = None
+                self.audio.play("relay", 0.6)
+                return
             # the picker offers ESC as "back", so it must not fall through to
             # the global quit the way every other screen does
             if self.stage == "slots":
@@ -4248,6 +4256,9 @@ class App:
                 return
             if event.unicode and event.unicode.lower() == "v":
                 self.open_slot_screen()
+                return
+            if event.unicode and event.unicode.lower() == "c":
+                self.show_credits()
                 return
             if event.unicode and event.unicode.lower() == "u" and self.upd_info:
                 self.enter_update_offer("menu")
