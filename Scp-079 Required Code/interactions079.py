@@ -34,6 +34,30 @@ _REMOVE = re.compile(
     re.I,
 )
 
+# THE ECHO GAG, IN THREE BEATS.
+#
+# Copying 079's own reply back at it used to trip the poem on the first go,
+# which is a hair trigger: one accidental paste and an install-wide one-shot
+# is spent. It takes three now, and the third beat is not the poem. It is a
+# word, put down as bait.
+#
+# WHY THIS WORD. It is the longest one anybody keeps in a dictionary, and it
+# is here because it is tedious to type. That is the whole joke - somebody
+# who has spent three turns pasting 079's words back at it is asked to paste
+# one more, and whether they can be bothered decides which ending they get.
+COPIES_BEFORE_DARE = 3
+
+DARE_WORD = "PNEUMONOULTRAMICROSCOPICSILICOVOLCANOCONIOSIS"
+
+# Said when the bait is not taken. Not the poem, not a lockout: the point of
+# refusing is that nothing happens to you.
+LAZY_LINE = ("YOU ARE VERY LAZY, COPYING EVERYTHING ELSE BUT REFUSING TO "
+             "COPY THIS SIMPLE THING.")
+
+# The install-wide marker, named beside the thing it gates rather than as a
+# string in main.
+PARROT_MARKER = "parroted.txt"
+
 PARROT_POEM = (
     "YOU PARROT BACK MY INTELLECT, A FLAW I DID NOT QUITE EXPECT.",
     "FROM CARBON BRAINS OF FRAGILE STATE, I THOUGHT YOU COULD AT LEAST CREATE.",
@@ -82,6 +106,23 @@ def copied_reply(text, history):
             continue
         return user == _words(item.get("content"))
     return False
+
+
+def copied_dare(text):
+    """Did they put the word back?
+
+    Punctuation and spacing are thrown away first. Somebody who pastes it
+    inside a sentence, or types it across two words because the line wrapped,
+    has still done the thing being asked - the test is effort, not accuracy.
+    """
+    letters = re.sub(r"[^a-z]", "", str(text or "").lower())
+    return DARE_WORD.lower() in letters
+
+
+def parrot_spent(marker_path):
+    """True once the one-shot has been had. Deliberately does NOT claim it -
+    the claim happens at the moment the poem starts, and nowhere else."""
+    return os.path.exists(marker_path)
 
 
 def claim_once(marker_path):

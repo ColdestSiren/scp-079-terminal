@@ -37,6 +37,7 @@ ENTRIES = [
     ("/copy", "Take the last code block. /copy 2 for an earlier one."),
     ("/update", "Check GitHub for a newer version. Asks before installing."),
     ("/feedback", "Send a bug or an idea to the author. Nothing auto-sends."),
+    ("/credits", "Who built this, and whose character 079 is."),
     ("/debug", "List the developer commands."),
     # {bypass} is filled in from the real key binding at layout time. The
     # lockout screen names this shortcut the first time you hit a timeout and
@@ -57,7 +58,8 @@ FOOTNOTES = [
 # The SCP credit deliberately does NOT live here. The command list already
 # fills this panel on a 960x720 window, so anything appended is pushed off
 # the bottom and never seen - and an attribution nobody can read is not an
-# attribution. It sits on the startup menu instead, which always renders.
+# attribution. It has a screen of its own now, /credits, listed above. The
+# startup menu always renders and carries the one line that names it.
 
 
 def _wrap(font, text, width):

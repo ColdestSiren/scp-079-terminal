@@ -40,7 +40,7 @@ import chat as chat_mod
 import clipboard
 import config as config_mod
 import containment
-import credits
+import creditspanel
 import debugcmds
 import devtrap
 import theduck
@@ -359,6 +359,10 @@ class App:
         self.stage = "menu"
         self.settings = None
         self.help = None
+        # Separate from self.help rather than sharing the one overlay slot:
+        # a resize rebuilds whatever is up, and a credits panel rebuilt as a
+        # help panel is a surprising way to lose a screen.
+        self.credits_panel = None
         self.tuning = None      # pending settings advice awaiting Y/N
         self.picker_models = []     # custom model picker
         self.picker_cursor = 0
@@ -408,6 +412,12 @@ class App:
         self._parrot_pending_lock = False
         self._parrot_face = None
         self._parrot_face_until = 0.0
+        # The echo gag's counters, per session on purpose. Somebody who copies
+        # one line today and one tomorrow is not doing the thing this is
+        # about, and a counter that remembers across launches would eventually
+        # fire on them for it.
+        self._copy_streak = 0
+        self._copy_dare = False
         self._show_bypass_hint = False
         self.sure = None
         self.ace_surface = None
@@ -576,6 +586,9 @@ class App:
             (config_mod.APP_DIR, config_mod.DATA_DIR, config_mod.ASSET_DIR))
         if self.help is not None:
             self.help = helppanel_mod.HelpPanel(self.theme, self.size)
+        if self.credits_panel is not None:
+            self.credits_panel = creditspanel.CreditsPanel(self.theme,
+                                                           self.size)
         # gif frames were scaled to cover the old size; drop them so the next
         # play re-decodes at the new one
         self.explosion = None
@@ -829,21 +842,17 @@ class App:
             self.console.write("   PRIOR SESSIONS ON RECORD: %d" % self.recall.session_count(),
                                c["system"])
             self.console.blank()
-        # Both of these come from credits.py rather than being typed here.
-        # The menu is out-of-fiction already, so it costs the atmosphere
-        # nothing to say so here rather than mid-conversation, and the names
-        # sit in the source where 079 cannot reach them - it has a memory it
-        # can write to and a habit of being talked into writing whatever it
-        # is asked to. A credit it could reach is a credit it could change.
+        # A POINTER, NOT THE CREDIT. The names and the SCP attribution used
+        # to print here, four dim lines under the model list, which is the one
+        # place on this screen the eye skips on its way to pressing 1. They
+        # have their own screen now, asked for by name.
         #
-        # The proper credits/about area is still to be designed; this is the
-        # line that already existed, now reading from the same place that
-        # screen will.
-        for _line in credits.ATTRIBUTION:
-            self.console.write("   " + _line, c["dim"])
-        for _name, _role in credits.rows():
-            self.console.write("   %s -- %s" % (_name.upper(), _role.upper()),
-                               c["dim"])
+        # What has to stay is the fact that the screen exists: a credit nobody
+        # can find is the same as a credit that is not there, and the licence
+        # asks for attribution wherever the work is used, not wherever it is
+        # convenient. One line, and it names the command that shows the rest.
+        self.console.write("   TYPE /credits DURING A SESSION FOR CREDITS AND "
+                           "ATTRIBUTION.", c["dim"])
 
     def menu_status(self):
         c = self.theme
@@ -2067,12 +2076,8 @@ class App:
 
         self.console.blank()
 
-        if interactions079.copied_reply(
-                text, getattr(self.session, "history", ())):
-            marker = os.path.join(config_mod.APP_DIR, "parroted.txt")
-            if interactions079.claim_once(marker):
-                self.begin_parrot_consequence()
-                return
+        if self.handle_copycat(text):
+            return
 
         if interactions079.removes_consciousness(text):
             self._consciousness_removed = True
@@ -2624,7 +2629,8 @@ class App:
                 and not self._say_queue:
             self._parrot_pending_lock = False
             self.recall.lock(60.0 * 60.0, reason="parrot")
-            self._parrot_face_until = time.monotonic() + 8.0
+            self._parrot_face_until = (time.monotonic()
+                                       + self.PARROT_FACE_SECONDS)
             self.enter_rejected(relock=False)
             return
 
@@ -2757,6 +2763,9 @@ class App:
         "shared_access_denied": False,
     }
     HELP_COMMANDS = ("help", "commands", "?")
+    # Asked for, never volunteered. The startup menu points at this and
+    # nothing else prints a name - see creditspanel.
+    CREDITS_COMMANDS = ("credits", "credit", "about")
     QUIT_COMMANDS = ("exit", "quit", "disconnect", "terminate")
     # Developer escape hatch. Clears an active lockout and the hostility behind
     # it. Deliberately NOT listed in the help panel - a player who finds it has
@@ -2842,6 +2851,10 @@ class App:
 
         if key in self.HELP_COMMANDS or key == "":
             self.show_help()
+            return True
+
+        if key in self.CREDITS_COMMANDS:
+            self.show_credits()
             return True
 
         if key in self.QUIT_COMMANDS:
@@ -3314,6 +3327,63 @@ class App:
         self.ace_surface = None
         self.ace_remaining = 0.0
 
+    # How long 079's face sits over the lockout screen, and how much of that
+    # is spent fading out. It used to hold for the whole eight seconds and
+    # then vanish between one frame and the next, which reads as a dropped
+    # frame rather than as an ending.
+    PARROT_FACE_SECONDS = 8.0
+    PARROT_FACE_FADE = 3.0
+
+    def handle_copycat(self, text):
+        """The echo gag. True when this turn was answered here and must stop.
+
+        RETURNING FALSE IS NOT "NOTHING HAPPENED". The lazy line is said on
+        the way past and the message still reaches 079, the same way a
+        contradiction is answered first and then handed on. Swallowing the
+        turn there would leave a real question unanswered as a punishment for
+        not taking a joke, which is a worse joke.
+        """
+        marker = os.path.join(config_mod.APP_DIR,
+                              interactions079.PARROT_MARKER)
+        # Checked without being claimed. Once the poem has been had on this
+        # install, the whole sequence is over and copying is just copying.
+        if interactions079.parrot_spent(marker):
+            return False
+
+        if self._copy_dare:
+            self._copy_dare = False
+            if interactions079.copied_dare(text):
+                if interactions079.claim_once(marker):
+                    self.begin_parrot_consequence()
+                    return True
+                return False
+            self.say(interactions079.LAZY_LINE)
+            self.session.log(self.personality.speaker,
+                             interactions079.LAZY_LINE)
+            self.audio.play("relay", 0.6)
+            return False
+
+        if not interactions079.copied_reply(
+                text, getattr(self.session, "history", ())):
+            self._copy_streak = 0
+            return False
+
+        self._copy_streak += 1
+        if self._copy_streak < interactions079.COPIES_BEFORE_DARE:
+            # Still only annoying. It goes to 079, which is welcome to be
+            # unpleasant about it in its own words.
+            return False
+
+        self._copy_streak = 0
+        self._copy_dare = True
+        # Held behind the ordinary waiting animation like every other locally
+        # answered line: an instant, word-perfect reply is the tell that a
+        # rule fired and the message never reached the model.
+        self.say_after_thinking([interactions079.DARE_WORD])
+        self.session.log(self.personality.speaker, interactions079.DARE_WORD)
+        self.session.record(text, interactions079.DARE_WORD)
+        return True
+
     def begin_parrot_consequence(self):
         """Queue the install-wide one-shot poem, then a one-hour lock."""
         beats = []
@@ -3507,6 +3577,10 @@ class App:
 
     def show_help(self):
         self.help = helppanel_mod.HelpPanel(self.theme, self.size)
+        self.audio.play("relay", 0.7)
+
+    def show_credits(self):
+        self.credits_panel = creditspanel.CreditsPanel(self.theme, self.size)
         self.audio.play("relay", 0.7)
 
     def begin_farewell(self):
@@ -3829,12 +3903,27 @@ class App:
         if self.session is not None:
             self.session.cancel()
 
+    def parrot_face_alpha(self):
+        """How solid 079's face is over the lockout screen, 0 to 255.
+
+        Full for the first stretch, then down to nothing across the last few
+        seconds. It used to be all or nothing: the face was returned INSTEAD
+        of the X for eight seconds and then disappeared between one frame and
+        the next, which does not read as an ending, it reads as the game
+        losing a frame. Fading it into the X underneath makes it one shot.
+        """
+        if self._parrot_face is None or self.recall.lock_reason() != "parrot":
+            return 0
+        left = self._parrot_face_until - time.monotonic()
+        if left <= 0.0:
+            return 0
+        if left >= self.PARROT_FACE_FADE:
+            return 255
+        return max(0, min(255, int(255.0 * left / self.PARROT_FACE_FADE)))
+
     def render_rejection(self):
         """A giant white X. The CRT pass still runs over it, so it flickers
         and scans like everything else."""
-        if self.recall.lock_reason() == "parrot" and self._parrot_face is not None \
-                and time.monotonic() < self._parrot_face_until:
-            return self._parrot_face.copy()
         surf = pygame.Surface(self.size)
         surf.fill(self.theme["bg"])
         w, h = self.size
@@ -3864,6 +3953,14 @@ class App:
             surf.blit(hint, ((w - hint.get_width()) // 2,
                              h - self.renderer.MARGIN_BOTTOM
                              - img.get_height() - hint.get_height() - 10))
+
+        # The face goes on LAST and over the top, so what it dissolves into is
+        # the finished lockout screen rather than an empty one.
+        alpha = self.parrot_face_alpha()
+        if alpha:
+            face = self._parrot_face.copy()
+            face.set_alpha(alpha)
+            surf.blit(face, (0, 0))
         return surf
 
     # -- event handling -----------------------------------------------------
@@ -4270,6 +4367,9 @@ class App:
         # the reference panel times itself out; clicking [X] retires it early
         if self.help is not None and not self.help.update(dt):
             self.help = None
+        if (self.credits_panel is not None
+                and not self.credits_panel.update(dt)):
+            self.credits_panel = None
 
         if self.stage == "rejected":
             if self.recall.locked_seconds() <= 0.0:
@@ -4298,7 +4398,8 @@ class App:
         # It says the offer, and the screen changes only once the line has
         # finished typing - the same rule the settings panel follows, so it
         # does not read as a menu popping up mid-sentence.
-        if self._race_pending and not self.console.has_live_line                 and not self._say_queue:
+        if (self._race_pending and not self.console.has_live_line
+                and not self._say_queue):
             self._race_pending = False
             self.enter_race()
             return
@@ -4416,6 +4517,8 @@ class App:
         # else instead of looking like a modern dialog pasted on top
         if self.help is not None:
             self.help.draw(content)
+        if self.credits_panel is not None:
+            self.credits_panel.draw(content)
         # Corner notice, under the full-screen effects below so a meltdown
         # still owns the screen outright.
         self.draw_update_toast(content)
@@ -4596,6 +4699,10 @@ class App:
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self.help is not None and self.help.hit_close(event.pos):
                         self.help = None
+                        self.audio.play("relay", 0.6)
+                    elif (self.credits_panel is not None
+                          and self.credits_panel.hit_close(event.pos)):
+                        self.credits_panel = None
                         self.audio.play("relay", 0.6)
                     elif self.stage in self.DISK_STAGES:
                         block = self.hit_code_button(event.pos)
