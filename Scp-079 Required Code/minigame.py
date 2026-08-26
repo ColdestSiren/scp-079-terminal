@@ -22,6 +22,9 @@ player earned the reset by beating it at its own thing.
 """
 
 import random
+import re
+
+import asked
 
 # Five rounds, each with less time than the last. The last round is short
 # enough that reading the whole block is not possible - you have to have been
@@ -71,6 +74,29 @@ def _line():
         hex1=_hex(4), hex2=_hex(2))
 
 
+# The mnemonics above are padded to a fixed width so the operands line up in
+# a column, which is the whole reason the block is hard to read at a glance.
+_TAIL = re.compile(r"\S+\s*$")
+
+
+def _splice(line, token):
+    """Put the corrupted token where the last operand was, IN PLACE.
+
+    This used to be line.split() then " ".join(), which collapsed the
+    template's double space - so the corrupted line was the only one in the
+    block whose second column did not line up. You could find it by looking
+    down the left edge of the operands for the one that jags, without reading
+    a single token, which is not the game. Measured before the fix: the
+    corrupt line was the odd one out on 200 rounds out of 200.
+    """
+    match = _TAIL.search(line)
+    if match and match.start() > 0:
+        return line[:match.start()] + token
+    # A bare mnemonic (NOP) has no operand to replace. Pad it the same way the
+    # templates do so it still sits in the column.
+    return "%s  %s" % (line.rstrip(), token)
+
+
 class TraceRace:
     """One full contest. Driven a frame at a time, never blocking."""
 
@@ -96,14 +122,15 @@ class TraceRace:
         # One line gets a corrupted token spliced into it. Stored WITH its
         # line so the answer is unambiguous - two identical tokens on screen
         # would make a correct answer look wrong.
-        index = random.randrange(len(self.lines))
+        # Only onto a line that HAS an operand. NOP is the one template with
+        # nothing after the mnemonic, so corrupting it would produce the only
+        # NOP on screen carrying an argument - findable by shape rather than
+        # by reading, same fault as the spacing one below.
+        spliceable = [i for i, line in enumerate(self.lines)
+                      if _TAIL.search(line) and _TAIL.search(line).start() > 0]
+        index = random.choice(spliceable or range(len(self.lines)))
         token = random.choice(_CORRUPT) + _hex(2)
-        parts = self.lines[index].split()
-        if len(parts) > 1:
-            parts[-1] = token
-        else:
-            parts.append(token)
-        self.lines[index] = " ".join(parts)
+        self.lines[index] = _splice(self.lines[index], token)
         self.target = token
         self.typed = ""
         self.remaining = ROUND_SECONDS[min(self.round - 1,
@@ -210,6 +237,45 @@ def spend(recall):
     recall.data["honest_answers"] = have - 1
     recall.save()
     return True
+
+
+# What counts as the question the debt gets paid on. This existed as an idea
+# in brief() - "the next time they ask a real question" - and as nothing else:
+# spend() was written and CALLED BY NOTHING, so one win told the model it owed
+# an honest answer on every turn for the rest of the save. A permanent
+# personality override is not the prize; one straight answer is.
+_WORD = re.compile(r"[A-Za-z0-9']+")
+_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
+
+# Below this it is a noise, not a question. Spending a prize on a typo is the
+# failure to avoid here, and it costs nothing to be strict.
+MIN_QUESTION_WORDS = 3
+
+# Questions that are really just knocking on the door. They pass every test
+# above - they are short, they end in a question mark, they lead with an
+# interrogative - and answering one straight costs 079 nothing, so paying the
+# debt off with one would rob the player of what they won.
+_CHECK_INS = frozenset((
+    "are you there", "you still there", "are you still there",
+    "you there", "is anyone there", "anyone there", "is anybody there",
+    "can you hear me", "do you hear me", "can you read me",
+    "are you awake", "are you listening", "are you alive",
+    "are you ok", "are you okay", "you ok", "you okay",
+))
+
+
+def is_real_question(text):
+    """Is this worth spending an honest answer on?"""
+    for sentence in [p.strip() for p in _SPLIT.split(str(text or "")) if p.strip()]:
+        if not asked.is_question(sentence):
+            continue
+        words = _WORD.findall(sentence.lower())
+        if len(words) < MIN_QUESTION_WORDS:
+            continue
+        if " ".join(words) in _CHECK_INS:
+            continue
+        return True
+    return False
 
 
 def brief(recall):

@@ -23,6 +23,7 @@ import os
 
 import config
 import devtrap
+import minigame
 import store
 
 # Filled in by main.App - each takes (app, args) and returns a list of
@@ -102,6 +103,28 @@ def _chain(app, args):
     return [("CHAIN TRIGGERED (%d IMAGES LOADED)" % len(chain.images), "warn"),
             ("REAL ODDS: %.2f%% PER MINUTE -- ABOUT ONCE EVERY %d HOURS"
              % (chain.chance, int(100.0 / max(chain.chance, 0.0001) / 60.0)),
+             "dim")]
+
+
+@command("race", "/debug race",
+         "Offer the trace contest now. It almost never offers on its own.")
+def _race(app, args):
+    if app.stage not in ("chat", "greet"):
+        return [("TRACE NEEDS THE CHAT SCREEN", "alarm")]
+    if getattr(app, "race", None) is not None:
+        return [("TRACE ALREADY RUNNING", "warn")]
+    app.offer_race()
+    # Stated because the number is the reason this command exists: at the
+    # real odds you could play for an evening and never see it, the same
+    # problem /debug chain was added for.
+    mean = (minigame.OFFER_EVERY_SECONDS / 60.0
+            / max(minigame.OFFER_CHANCE, 0.0001))
+    return [("TRACE OFFERED", "warn"),
+            ("REAL ODDS: %.0f%% EVERY %.0f MIN, AND ONLY ABOVE %.0f%% "
+             "HOSTILITY" % (minigame.OFFER_CHANCE * 100.0,
+                            minigame.OFFER_EVERY_SECONDS / 60.0,
+                            minigame.OFFER_MIN_HOSTILITY * 100.0), "dim"),
+            ("-- ABOUT ONCE EVERY %d MINUTES OF BEING ANGRY AT YOU" % mean,
              "dim")]
 
 
@@ -248,6 +271,10 @@ def _state(app, args):
                                else "hidden")
                               if app.session else "no session yet"), "text"),
         ("SESSIONS     %d" % rec.session_count(), "text"),
+        # Otherwise invisible. It is in the prompt and nowhere on screen, and
+        # a debt that silently never went down is exactly the failure this
+        # line would have caught.
+        ("TRACE        %d honest answer(s) owed" % minigame.owed(rec), "text"),
         # Moved here out of the SYS panel, which used to print "IDENTITY
         # CHALLENGED xN" where the player could read it. That is a scoreboard
         # for the guard: it says a separate mechanism fired and hands over the

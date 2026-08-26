@@ -133,6 +133,9 @@ class ChatSession:
         # names of the player-supplied sounds 079 may trigger; set by main
         self.sound_names = []
         self._thinking = ""
+        # Is the turn in flight the one that pays off a trace win? Decided at
+        # send, charged when the reply lands. See _charge_owed.
+        self._owed_turn = False
         self._log_path = self._open_log()
 
     # -- logging ------------------------------------------------------------
@@ -255,6 +258,22 @@ class ChatSession:
         if self.recall is None:
             return ""
         return minigame.brief(self.recall)
+
+    def _charge_owed(self, cleaned):
+        """Take the honest answer off the tab, now that one has been given.
+
+        NOT charged when the reply is one of the canonical substitutes. Every
+        guard in poll() may replace what came back with "I AM SCP-079." or the
+        break-character line, and those are 079 refusing - which is the exact
+        thing the debt says it may not do. Charging there would let a player
+        lose what they won to a guard firing on their behalf.
+        """
+        if not self._owed_turn:
+            return False
+        self._owed_turn = False
+        if not cleaned or cleaned in self._repeatable():
+            return False
+        return minigame.spend(self.recall)
 
     def _mood_note(self):
         """How it SOUNDS at this hostility, as opposed to what it may do.
@@ -468,6 +487,16 @@ class ChatSession:
         # Cleared by the next send whatever happens, so a picture can never
         # ride a second turn by accident.
         self._image = image or None
+        # Decided HERE and charged in poll(), not the other way round: the
+        # brief for THIS turn still has to say it owes one, because this is
+        # the turn where it pays. Spending first would make the prompt claim
+        # the debt was already settled on the very message settling it.
+        # `remember` is False for the synthetic greeting - an instruction the
+        # game wrote is not the player asking anything.
+        self._owed_turn = bool(
+            remember and self.recall is not None
+            and minigame.owed(self.recall) > 0
+            and minigame.is_real_question(text))
         self._filter = ThinkFilter()
         self._raw_so_far = ""       # untouched stream, for fence detection
         self._thinking = ""
@@ -723,6 +752,7 @@ class ChatSession:
                 self._trim()
                 if self.recall is not None:
                     self.recall.remember("assistant", cleaned)
+            self._charge_owed(cleaned)
             out.append(("reply", cleaned))
         return out
 

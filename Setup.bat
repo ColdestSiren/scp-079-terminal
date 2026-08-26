@@ -239,7 +239,7 @@ if defined PYBASE (
     if defined CHECKONLY goto :python_done
     echo.
     echo      Needs: pygame ^(the window and sound^)
-    echo             Pillow ^(decodes the animated gifs^)
+    echo             Pillow ^(animated gifs, and showing 079 a picture^)
     echo.
     set /p "ANS=      Install them now? (Y/N): "
     if /i "!ANS!"=="Y" (
@@ -499,7 +499,7 @@ if defined PYCMD (
     if not errorlevel 1 (
         echo    Pillow .......... OK
     ) else (
-        echo    Pillow .......... MISSING ^(no animations^)
+        echo    Pillow .......... MISSING ^(no animations, no images^)
         set "READY="
     )
 ) else (
@@ -569,17 +569,21 @@ if exist "!REQ!" (
 exit /b 0
 
 :check_extras
-REM Pillow decodes the animated gifs. Treated as REQUIRED: the game will
-REM still start without it, but every animated easter egg silently does
-REM nothing, and "the funny stuff quietly not happening" is a worse failure
-REM than a missing library, because nobody can tell it is broken.
+REM Pillow has two jobs: decoding animated gifs, and reading, shrinking
+REM and re-encoding a picture the player shows 079 (including one pasted
+REM off the clipboard). Treated as REQUIRED: the game will still start
+REM without it, but every animated easter egg silently does nothing, and
+REM "the funny stuff quietly not happening" is a worse failure than a
+REM missing library, because nobody can tell it is broken. Images at
+REM least refuse in words rather than half-working.
 !PYCMD! -c "import PIL" >nul 2>&1
 if not errorlevel 1 (
-    echo  [OK] Pillow found ^(animations will play^)
+    echo  [OK] Pillow found ^(animations play, images can be shown^)
     exit /b 0
 )
 echo  [X] Pillow is MISSING. Every animated easter egg will silently
-echo      do nothing - no explosion, no fire screen, no future ones.
+echo      do nothing - no explosion, no fire screen, no future ones -
+echo      and 079 cannot be shown a picture at all.
 if defined CHECKONLY exit /b 0
 echo.
 set /p "ANS=      Install Pillow now? (Y/N): "

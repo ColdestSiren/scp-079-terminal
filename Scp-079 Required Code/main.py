@@ -2398,11 +2398,20 @@ class App:
             return
         self._race_check = 0.0
         if minigame.should_offer(self.hostility_level()):
-            line = random.choice(minigame.OFFER_LINES)
-            self.say(line)
-            if self.session is not None:
-                self.session.log(self.personality.speaker, line)
-            self._race_pending = True
+            self.offer_race()
+
+    def offer_race(self):
+        """Say the challenge, then let the screen change once it has landed.
+
+        Separate from the roll above so /debug race goes through the SAME
+        path a real offer does, rather than jumping straight into the trace
+        and leaving the half that actually fires in play untested.
+        """
+        line = random.choice(minigame.OFFER_LINES)
+        self.say(line)
+        if self.session is not None:
+            self.session.log(self.personality.speaker, line)
+        self._race_pending = True
 
     def draw_meltdown(self, surface):
         """The warning, then the face. Drawn before the CRT pass so it scans
@@ -5170,7 +5179,10 @@ def take_shot(cfg, path, stage, seconds):
         app.console.write_segments(app.speaker_prefix()
                                    + [(c["text"], "YOU ARE SLOW. LET ME SHOW YOU HOW SLOW.")])
         app.enter_race()
+        # Set AFTER entering, so redraw or the shot shows an empty prompt and
+        # proves nothing about how a half-typed answer looks.
         app.race.typed = "??"
+        app.draw_race()
     elif stage in ("meltwarn", "meltflash"):
         app.stage = "chat"
         app.session = DemoSession(cfg, app.personality, app.model)
