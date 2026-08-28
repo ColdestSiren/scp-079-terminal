@@ -29,6 +29,10 @@ shared folder/
 # their setup on every update.
 Scp-079 Required Code/config.json
 
+# Optional path to a moved Python installation. It contains a machine-specific
+# absolute path and must remain local across clones and updates.
+python-path.txt
+
 # What the updater keeps when it replaces files. Local history of one machine.
 backup/
 

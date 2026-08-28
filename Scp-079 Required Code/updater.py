@@ -94,6 +94,7 @@ PROTECTED = (
     "logs",                                 # transcripts, hostility, session count
     "shared folder",                        # the player's own files
     "suggestions.txt",                      # the player's notes
+    "python-path.txt",                      # machine-specific interpreter path
     "scp-079 required code/config.json",    # settings, model choice, saves index
 )
 

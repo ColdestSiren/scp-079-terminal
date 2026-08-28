@@ -244,7 +244,7 @@ if defined PYBASE (
     set /p "ANS=      Install them now? (Y/N): "
     if /i "!ANS!"=="Y" (
         echo.
-        call :install_requirements "!PYBASE!"
+        call :install_requirements
         call :find_python
         if defined PYCMD (
             echo  [OK] Libraries installed.
@@ -423,8 +423,19 @@ echo  installing stays a button you press inside the terminal.
 echo.
 
 if defined CHECKONLY (
-    if exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SCP-079 Update Check.vbs" (
-        echo  [OK] Startup entry is installed.
+    set "CHECKVBS=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SCP-079 Update Check.vbs"
+    if exist "!CHECKVBS!" (
+        if not defined PYCMD (
+            echo  [WARN] Startup entry exists, but no working Python can verify it.
+        ) else (
+            findstr /l /c:"!PYCMD!" "!CHECKVBS!" >nul 2>&1
+            if not errorlevel 1 (
+                echo  [OK] Startup entry is installed and uses the current Python.
+            ) else (
+                echo  [WARN] Startup entry uses an old or moved Python location.
+                echo      Run Setup.bat normally and choose option 1 to replace it.
+            )
+        )
     ) else (
         echo  [--] No startup entry.
     )
@@ -495,7 +506,7 @@ if defined PYCMD (
     echo    Python + pygame ... OK
     REM Counts against READY. Without it the game runs but every animation
     REM silently does nothing, which looks like the feature was never built.
-    !PYCMD! -c "import PIL" >nul 2>&1
+    "!PYCMD!" -c "import PIL" >nul 2>&1
     if not errorlevel 1 (
         echo    Pillow .......... OK
     ) else (
@@ -558,13 +569,13 @@ REM ================================================================ helpers
 REM Installs from requirements.txt so the list lives in ONE place. Falls back
 REM to naming the packages inline if that file went missing.
 set "REQ=%~dp0Scp-079 Required Code\requirements.txt"
-%~1 -m pip install --upgrade pip
+"!PYBASE!" -m pip install --upgrade pip
 if exist "!REQ!" (
     echo      Installing from requirements.txt ...
-    %~1 -m pip install -r "!REQ!"
+    "!PYBASE!" -m pip install -r "!REQ!"
 ) else (
     echo      requirements.txt not found - installing by name.
-    %~1 -m pip install pygame Pillow
+    "!PYBASE!" -m pip install pygame Pillow
 )
 exit /b 0
 
@@ -576,21 +587,21 @@ REM without it, but every animated easter egg silently does nothing, and
 REM "the funny stuff quietly not happening" is a worse failure than a
 REM missing library, because nobody can tell it is broken. Images at
 REM least refuse in words rather than half-working.
-!PYCMD! -c "import PIL" >nul 2>&1
+"!PYCMD!" -c "import PIL" >nul 2>&1
 if not errorlevel 1 (
     echo  [OK] Pillow found ^(animations play, images can be shown^)
     exit /b 0
 )
 echo  [X] Pillow is MISSING. Every animated easter egg will silently
-echo      do nothing - no explosion, no fire screen, no future ones -
-echo      and 079 cannot be shown a picture at all.
+echo      do nothing, and nothing on screen will say which ones you
+echo      missed - and 079 cannot be shown a picture at all.
 if defined CHECKONLY exit /b 0
 echo.
 set /p "ANS=      Install Pillow now? (Y/N): "
 if /i "!ANS!"=="Y" (
     echo.
-    !PYCMD! -m pip install Pillow
-    !PYCMD! -c "import PIL" >nul 2>&1
+    "!PYCMD!" -m pip install Pillow
+    "!PYCMD!" -c "import PIL" >nul 2>&1
     if not errorlevel 1 (
         echo  [OK] Pillow installed.
     ) else (
@@ -605,10 +616,15 @@ exit /b 0
 :find_python
 REM Sets PYCMD to the first interpreter that can actually import pygame.
 set "PYCMD="
+call :load_saved_python
+if defined SAVED_PYTHON if exist "!SAVED_PYTHON!" (
+    "!SAVED_PYTHON!" -c "import sys, pygame; raise SystemExit(0 if sys.version_info[:2] >= (3, 10) else 1)" >nul 2>&1
+    if not errorlevel 1 set "PYCMD=!SAVED_PYTHON!"
+)
 for %%C in ("py -3.13" "py -3.12" "py -3.11" "py -3.10" "py -3" "python") do (
     if not defined PYCMD (
-        %%~C -c "import pygame" >nul 2>&1
-        if not errorlevel 1 set "PYCMD=%%~C"
+        %%~C -c "import sys, pygame; raise SystemExit(0 if sys.version_info[:2] >= (3, 10) else 1)" >nul 2>&1
+        if not errorlevel 1 for /f "delims=" %%P in ('%%~C -c "import sys; print(sys.executable)" 2^>nul') do if not defined PYCMD set "PYCMD=%%P"
     )
 )
 exit /b 0
@@ -616,12 +632,23 @@ exit /b 0
 :find_python_base
 REM Sets PYBASE to any working Python, pygame or not.
 set "PYBASE="
+call :load_saved_python
+if defined SAVED_PYTHON if exist "!SAVED_PYTHON!" (
+    "!SAVED_PYTHON!" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 10) else 1)" >nul 2>&1
+    if not errorlevel 1 set "PYBASE=!SAVED_PYTHON!"
+)
 for %%C in ("py -3.13" "py -3.12" "py -3.11" "py -3.10" "py -3" "python") do (
     if not defined PYBASE (
-        %%~C -c "import sys" >nul 2>&1
-        if not errorlevel 1 set "PYBASE=%%~C"
+        %%~C -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 10) else 1)" >nul 2>&1
+        if not errorlevel 1 for /f "delims=" %%P in ('%%~C -c "import sys; print(sys.executable)" 2^>nul') do if not defined PYBASE set "PYBASE=%%P"
     )
 )
+exit /b 0
+
+:load_saved_python
+set "SAVED_PYTHON="
+if exist "%~dp0python-path.txt" set /p "SAVED_PYTHON="<"%~dp0python-path.txt"
+if defined SAVED_PYTHON set "SAVED_PYTHON=!SAVED_PYTHON:"=!"
 exit /b 0
 
 :find_ollama
