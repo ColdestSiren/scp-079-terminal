@@ -11,6 +11,7 @@ set "PYCMD="
 set "PYBASE="
 set "OLLAMA="
 set "MODEL=llama3.2:3b"
+set "PYTHON_INSTALL_VERSION=3.13.15"
 
 echo.
 echo  ============================================================
@@ -271,10 +272,33 @@ if defined WINGET (
         exit /b 0
     )
 ) else (
-    set /p "ANS=      Open the Python download page? (Y/N): "
-    if /i "!ANS!"=="Y" start "" "https://www.python.org/downloads/"
+    echo      Windows Package Manager is unavailable, so Setup can download
+    echo      the official signed Python installer directly from python.org.
     echo.
-    echo  [i] Install it, tick "Add python.exe to PATH", then run Setup.bat again.
+    set /p "ANS=      Download and install Python !PYTHON_INSTALL_VERSION! now? (Y/N): "
+    if /i "!ANS!"=="Y" (
+        call :install_python_direct
+        if errorlevel 1 (
+            echo.
+            echo  [X] Automatic Python installation did not complete.
+            set /p "ANS=      Open the official Python download page instead? (Y/N): "
+            if /i "!ANS!"=="Y" start "" "https://www.python.org/downloads/"
+        ) else (
+            call :find_python_base
+            if defined PYBASE (
+                echo.
+                echo      Installing the terminal libraries into the new Python...
+                call :install_requirements
+                call :find_python
+            )
+            if defined PYCMD (
+                echo  [OK] Python, Pygame and Pillow are ready.
+            ) else (
+                echo  [i] Python installed, but this window cannot locate it yet.
+                echo      Close this window and run Setup.bat again to finish.
+            )
+        )
+    )
 )
 
 :python_done
@@ -649,6 +673,33 @@ exit /b 0
 set "SAVED_PYTHON="
 if exist "%~dp0python-path.txt" set /p "SAVED_PYTHON="<"%~dp0python-path.txt"
 if defined SAVED_PYTHON set "SAVED_PYTHON=!SAVED_PYTHON:"=!"
+exit /b 0
+
+:install_python_direct
+REM Used only when winget is unavailable and only after the user typed Y.
+REM The installer must carry a valid Python Software Foundation signature.
+set "PYARCH=amd64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "PYARCH=arm64"
+set "PYINSTALLER=%TEMP%\scp079-python-!PYTHON_INSTALL_VERSION!-!RANDOM!.exe"
+set "PYURL=https://www.python.org/ftp/python/!PYTHON_INSTALL_VERSION!/python-!PYTHON_INSTALL_VERSION!-!PYARCH!.exe"
+
+echo.
+echo      Downloading Python !PYTHON_INSTALL_VERSION! from python.org...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+ "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing -Uri '!PYURL!' -OutFile '!PYINSTALLER!'; $s=Get-AuthenticodeSignature -LiteralPath '!PYINSTALLER!'; if($s.Status -ne 'Valid' -or $s.SignerCertificate.Subject -notmatch 'Python Software Foundation'){throw 'The Python installer signature is not valid.'}"
+if errorlevel 1 (
+    del /q "!PYINSTALLER!" >nul 2>&1
+    exit /b 1
+)
+
+echo      Signature verified. Installing for the current Windows user...
+start "" /wait "!PYINSTALLER!" /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0
+set "PYINSTALL_RC=!errorlevel!"
+del /q "!PYINSTALLER!" >nul 2>&1
+if not "!PYINSTALL_RC!"=="0" exit /b 1
+
+set "NEWPY=%LocalAppData%\Programs\Python\Python313\python.exe"
+if exist "!NEWPY!" >"%~dp0python-path.txt" echo(!NEWPY!
 exit /b 0
 
 :find_ollama
