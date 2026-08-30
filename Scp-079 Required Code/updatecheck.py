@@ -30,6 +30,7 @@ has finished loading.
 """
 
 import sys
+import os
 
 MB_OK = 0x0
 MB_ICONINFORMATION = 0x40
@@ -42,6 +43,83 @@ def _box(text, title=TITLE):
         import ctypes
         ctypes.windll.user32.MessageBoxW(
             None, text, title, MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND)
+        return True
+    except Exception:
+        return False
+
+
+def _toast(installed_text, version_text, duration_ms=15000):
+    """Show a real desktop-corner notice without third-party packages.
+
+    Tk ships with normal Windows Python. If it is unavailable (or Windows is
+    not running an interactive desktop yet), fall back to the native message
+    box instead of losing the update notice entirely.
+    """
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.title(TITLE)
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
+        root.configure(bg="#07110c")
+
+        width, height = 485, 142
+        x = max(12, root.winfo_screenwidth() - width - 22)
+        y = 22
+        root.geometry("%dx%d+%d+%d" % (width, height, x, y))
+
+        frame = tk.Frame(root, bg="#07110c", highlightbackground="#34d27b",
+                         highlightthickness=2)
+        frame.pack(fill="both", expand=True)
+        body = tk.Frame(frame, bg="#07110c")
+        body.pack(fill="both", expand=True, padx=12, pady=11)
+
+        # Use the same packaged SCP-079 face as the in-game update notice.
+        # Pillow is installed by Setup and gives the cleanest thumbnail, but
+        # native Tk PNG loading remains a fallback for a partial installation.
+        picture = None
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        image_path = os.path.join(project_root, "Scp-079.png")
+        if os.path.isfile(image_path):
+            try:
+                from PIL import Image, ImageTk
+                raw = Image.open(image_path).convert("RGB")
+                raw.thumbnail((108, 108))
+                picture = ImageTk.PhotoImage(raw)
+            except Exception:
+                try:
+                    raw = tk.PhotoImage(file=image_path)
+                    factor = max(1, max(raw.width() // 108, raw.height() // 108))
+                    picture = raw.subsample(factor, factor)
+                except Exception:
+                    picture = None
+
+        if picture is not None:
+            image_label = tk.Label(body, image=picture, bg="#07110c")
+            image_label.image = picture
+            image_label.pack(side="left", padx=(0, 13))
+
+        words = tk.Frame(body, bg="#07110c")
+        words.pack(side="left", fill="both", expand=True)
+        tk.Label(words, text="SCP-079 // UPDATE AVAILABLE",
+                 bg="#07110c", fg="#70f0a6",
+                 font=("Consolas", 12, "bold"), anchor="w").pack(
+                     fill="x", pady=(3, 6))
+        tk.Label(words, text="Installed: %s     Available: %s" %
+                 (installed_text, version_text), bg="#07110c",
+                 fg="#d7ffe7", font=("Consolas", 10), anchor="w").pack(
+                     fill="x")
+        tk.Label(words, text="Open the terminal and type /update to install.",
+                 bg="#07110c", fg="#8caf9a",
+                 font=("Consolas", 9), anchor="w").pack(
+                     fill="x", pady=(7, 0))
+
+        root.bind("<Button-1>", lambda _event: root.destroy())
+        # Even direct/debug callers obey the same user-facing bounds.
+        duration_ms = max(5000, min(60000, int(duration_ms)))
+        root.after(duration_ms, root.destroy)
+        root.mainloop()
         return True
     except Exception:
         return False
@@ -61,7 +139,30 @@ def main(argv):
         print("load failed: %s" % exc)
         return 0
 
+    if "--set-interval" in argv:
+        try:
+            index = argv.index("--set-interval")
+            seconds = int(argv[index + 1])
+            if seconds not in (-1, 0, 300, 900, 3600, 21600, 86400):
+                raise ValueError("unsupported interval")
+            cfg = config.load()
+            cfg.setdefault("updates", {})["check_interval_seconds"] = seconds
+            config.save(cfg)
+            return 0
+        except Exception as exc:
+            if dry:
+                print("could not save interval: %s" % exc)
+            return 2
+
     cfg = config.load()
+    if "--test-toast" in argv:
+        seconds = max(5, min(60, int(
+            (cfg.get("updates") or {}).get("desktop_toast_seconds", 15))))
+        shown = _toast(version.describe(), "TEST NOTICE", seconds * 1000)
+        if not shown:
+            _box("Desktop toast preview could not open.")
+            return 2
+        return 0
     name = updater.repo(cfg)
     if not name:
         if dry:
@@ -107,7 +208,10 @@ def main(argv):
     if dry:
         print("update available: %s -> %s" % (version.describe(), info["version"]))
     else:
-        _box(line)
+        seconds = max(5, min(60, int(
+            (cfg.get("updates") or {}).get("desktop_toast_seconds", 15))))
+        if not _toast(version.describe(), info["version"], seconds * 1000):
+            _box(line)
     return 1
 
 

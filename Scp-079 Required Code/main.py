@@ -16,6 +16,7 @@ down) and rejected (079 has cut communication).
 """
 
 import os
+import copy
 import platform
 import random
 import sys
@@ -364,6 +365,9 @@ class App:
 
         self.stage = "menu"
         self.settings = None
+        self.onboarding_snapshot = None
+        self.onboarding_skip_rect = None
+        self.onboarding_save_rect = None
         self.help = None
         # Separate from self.help rather than sharing the one overlay slot:
         # a resize rebuilds whatever is up, and a credits panel rebuilt as a
@@ -713,7 +717,7 @@ class App:
         if not updater_mod.repo(self.cfg):
             return
         if not manual:
-            if not updater_mod.enabled(self.cfg) or not updater_mod.due_for_check():
+            if not updater_mod.enabled(self.cfg) or not updater_mod.due_for_check(self.cfg):
                 return
         self.upd_check = updater_mod.check_job(self.cfg)
 
@@ -997,6 +1001,69 @@ class App:
         self.settings.after_reset = self._restore_after_reset
         self.status_row = None
         self.audio.play("relay", 0.7)
+
+    def open_onboarding(self):
+        """First-run workstation setup, before the ordinary model menu."""
+        self.stage = "onboarding"
+        self.onboarding_snapshot = copy.deepcopy(self.cfg)
+        self.settings = settings_mod.SettingsScreen(
+            self.cfg, self.mem, self.theme,
+            max_body_rows=max(6, self.renderer.max_visible - 11),
+            onboarding=True)
+        if OFFLINE or _SHOT:
+            self.probe = None
+            self.probe_result = {"exe": "stub", "running": True, "models": []}
+        else:
+            self.probe = probe_job(self.cfg)
+            self.probe_result = None
+        self.status_row = None
+
+    def finish_onboarding(self, save_changes):
+        if not save_changes and self.onboarding_snapshot is not None:
+            self.cfg.clear()
+            self.cfg.update(self.onboarding_snapshot)
+        self.cfg.setdefault("onboarding", {})["first_launch_complete"] = True
+        config_mod.save(self.cfg)
+        install = bool(not OFFLINE and not _SHOT and save_changes
+                       and self.cfg.get("onboarding", {}).get(
+                           "install_model_on_save", True))
+        self.model = self.cfg.get("model", MODEL_CHOICES[1]["model"])
+        self.settings = None
+        self.onboarding_snapshot = None
+        if install:
+            self.stage = "onboarding_wait"
+            self.console.rows = []
+            self.console.blank()
+            self.console.write("  CHECKING OLLAMA AND SELECTED MODEL...",
+                               self.theme["system"])
+        else:
+            self.enter_menu()
+
+    def poll_onboarding_probe(self):
+        if self.probe is None or not self.probe.done.is_set():
+            return
+        self.probe_result = self.probe.result or {
+            "exe": None, "running": False, "models": []}
+        self.probe = None
+        self.enter_prepare()
+
+    def draw_onboarding_buttons(self, surface):
+        if self.stage != "onboarding":
+            self.onboarding_skip_rect = self.onboarding_save_rect = None
+            return
+        pad, height, width = 20, 44, 170
+        y = self.size[1] - height - pad
+        self.onboarding_skip_rect = pygame.Rect(pad, y, width, height)
+        self.onboarding_save_rect = pygame.Rect(
+            self.size[0] - width - pad, y, width, height)
+        for rect, label, colour in (
+                (self.onboarding_skip_rect, "SKIP", self.theme["dim"]),
+                (self.onboarding_save_rect, "SAVE", self.theme["warn"])):
+            pygame.draw.rect(surface, self.theme["bg"], rect)
+            pygame.draw.rect(surface, colour, rect, 2)
+            glyph = self.font.render(label, True, colour)
+            surface.blit(glyph, (rect.centerx - glyph.get_width() // 2,
+                                 rect.centery - glyph.get_height() // 2))
 
     def _restore_after_reset(self):
         self.write_identity_anchor()
@@ -4430,7 +4497,48 @@ class App:
                 self.resolve_update_offer(False)
             return
 
+        if self.stage == "onboarding":
+            if self.settings.custom_label is not None:
+                if event.key == pygame.K_ESCAPE:
+                    self.settings.cancel_custom()
+                elif event.key == pygame.K_BACKSPACE:
+                    self.settings.custom_backspace()
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if self.settings.apply_custom():
+                        self.audio.play("relay", 0.7)
+                elif event.unicode:
+                    self.settings.custom_type(event.unicode)
+                return
+            if event.key == pygame.K_ESCAPE:
+                self.finish_onboarding(False)
+            elif event.key == pygame.K_UP:
+                self.settings.move(-1)
+            elif event.key == pygame.K_DOWN:
+                self.settings.move(1)
+            elif event.key == pygame.K_LEFT:
+                self.settings.change(-1)
+            elif event.key == pygame.K_RIGHT:
+                self.settings.change(1)
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.settings.activate()
+            elif event.key == pygame.K_o:
+                self.settings.begin_custom()
+            elif event.key == pygame.K_s:
+                self.finish_onboarding(True)
+            return
+
         if self.stage == "settings":
+            if self.settings.custom_label is not None:
+                if event.key == pygame.K_ESCAPE:
+                    self.settings.cancel_custom()
+                elif event.key == pygame.K_BACKSPACE:
+                    self.settings.custom_backspace()
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                    if self.settings.apply_custom():
+                        self.audio.play("relay", 0.7)
+                elif event.unicode:
+                    self.settings.custom_type(event.unicode)
+                return
             if event.key == pygame.K_b:
                 self.close_settings()
             elif event.key == pygame.K_UP:
@@ -4444,6 +4552,9 @@ class App:
             elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self.settings.activate()
                 self.audio.play("relay", 0.7)
+            elif event.key == pygame.K_o:
+                if self.settings.begin_custom():
+                    self.audio.play("relay", 0.7)
             if getattr(self.settings, "display_dirty", False):
                 self.settings.display_dirty = False
                 self.fullscreen = bool(self.cfg["window"].get("fullscreen"))
@@ -4735,7 +4846,9 @@ class App:
         self.poll_update_check()
         self.update_toast(dt)
 
-        if self.stage == "menu":
+        if self.stage == "onboarding_wait":
+            self.poll_onboarding_probe()
+        elif self.stage == "menu":
             if self.probe is not None and self.probe_result is None:
                 for kind, payload in self.probe.poll():
                     if kind == "result" and payload:
@@ -4771,6 +4884,8 @@ class App:
         return row
 
     def rows(self):
+        if self.stage == "onboarding" and self.settings is not None:
+            return self.settings.entries()
         if self.stage == "settings" and self.settings is not None:
             return self.settings.entries()
         entries = self.console.entries()
@@ -4817,6 +4932,7 @@ class App:
             content = self.render_rejection()
         else:
             content = self.renderer.render(self.rows(), dt)
+        self.draw_onboarding_buttons(content)
         # after the transcript, so the row map is from the frame just drawn
         if self.stage in ("greet", "chat"):
             if self.code_blocks:
@@ -5008,7 +5124,11 @@ class App:
             # still refusing from a previous run - it does not even boot
             self.stage = "rejected"
         else:
-            self.enter_menu()
+            if not self.cfg.get("onboarding", {}).get(
+                    "first_launch_complete", False):
+                self.open_onboarding()
+            else:
+                self.enter_menu()
         while self.running:
             dt = clock.tick(self.fps) / 1000.0
             for event in pygame.event.get():
@@ -5017,7 +5137,13 @@ class App:
                 elif event.type == pygame.KEYDOWN:
                     self.handle_key(event)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.help is not None and self.help.hit_close(event.pos):
+                    if self.stage == "onboarding" and self.onboarding_skip_rect \
+                            and self.onboarding_skip_rect.collidepoint(event.pos):
+                        self.finish_onboarding(False)
+                    elif self.stage == "onboarding" and self.onboarding_save_rect \
+                            and self.onboarding_save_rect.collidepoint(event.pos):
+                        self.finish_onboarding(True)
+                    elif self.help is not None and self.help.hit_close(event.pos):
                         self.help = None
                         self.audio.play("relay", 0.6)
                     elif (self.credits_panel is not None
@@ -5077,7 +5203,9 @@ def take_shot(cfg, path, stage, seconds):
     step = 1.0 / 60.0
     c = app.theme
 
-    if stage == "menu":
+    if stage == "onboarding":
+        app.open_onboarding()
+    elif stage == "menu":
         app.draw_menu()
         app.probe = object()
         app.probe_result = {"exe": "stub", "running": True,

@@ -80,10 +80,11 @@ MAX_API_BYTES = 512_000
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 CHUNK = 64 * 1024
 
-# How long to sit quiet between checks. GitHub allows 60 unauthenticated API
-# calls an hour per IP; this is nowhere near it, and the point is really that
-# nobody wants a network call every time they open a game.
-CHECK_INTERVAL_SECONDS = 6 * 3600
+# How long to sit quiet between automatic checks. Keep this short enough that
+# checking before a Release is published cannot hide that Release for most of
+# a day. Five minutes still stays comfortably below GitHub's unauthenticated
+# limit during ordinary use, while /update continues to bypass the timer.
+CHECK_INTERVAL_SECONDS = 5 * 60
 
 STATE_NAME = "update_state.json"
 
@@ -180,10 +181,32 @@ def declined(tag):
     return bool(tag) and load_state().get("declined") == str(tag)
 
 
-def due_for_check():
+def check_interval(cfg=None):
+    """Configured automatic-check interval, constrained to a safe range.
+
+    Zero means every launch. Invalid hand-edited values fall back to five
+    minutes; values above one week are capped so an accidental extra zero
+    cannot quietly disable update discovery for months.
+    """
+    raw = ((cfg or {}).get("updates") or {}).get(
+        "check_interval_seconds", CHECK_INTERVAL_SECONDS)
+    try:
+        if int(raw) == -1:
+            return None
+        return max(0, min(7 * 24 * 3600, int(raw)))
+    except (TypeError, ValueError):
+        return CHECK_INTERVAL_SECONDS
+
+
+def due_for_check(cfg=None):
+    interval = check_interval(cfg)
+    if interval is None:
+        return False
+    if interval == 0:
+        return True
     last = load_state().get("last_check", 0)
     try:
-        return (time.time() - float(last)) >= CHECK_INTERVAL_SECONDS
+        return (time.time() - float(last)) >= interval
     except Exception:
         return True
 

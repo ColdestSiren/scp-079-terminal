@@ -446,6 +446,38 @@ echo  It only ever CHECKS. It never downloads and never installs -
 echo  installing stays a button you press inside the terminal.
 echo.
 
+if defined CHECKONLY goto :skip_interval_prompt
+
+echo  How often should the terminal check automatically when it is opened?
+echo    [1] Every launch
+echo    [2] Every 5 minutes ^(recommended^)
+echo    [3] Every 15 minutes
+echo    [4] Every hour
+echo    [5] Every 6 hours
+echo    [6] Every 24 hours
+echo    [7] I'll do it myself ^(manual /update only^)
+echo.
+set /p "INTERVALANS=      Choose 1 through 6 [default 2]: "
+set "INTERVAL_SECONDS=300"
+if "!INTERVALANS!"=="1" set "INTERVAL_SECONDS=0"
+if "!INTERVALANS!"=="3" set "INTERVAL_SECONDS=900"
+if "!INTERVALANS!"=="4" set "INTERVAL_SECONDS=3600"
+if "!INTERVALANS!"=="5" set "INTERVAL_SECONDS=21600"
+if "!INTERVALANS!"=="6" set "INTERVAL_SECONDS=86400"
+if "!INTERVALANS!"=="7" set "INTERVAL_SECONDS=-1"
+
+if defined PYCMD (
+    "!PYCMD!" "%~dp0Scp-079 Required Code\updatecheck.py" --set-interval !INTERVAL_SECONDS!
+    if not errorlevel 1 (
+        echo  [OK] Automatic check interval saved.
+    ) else (
+        echo  [WARN] Could not save the interval. The 5 minute default remains.
+    )
+)
+echo.
+
+:skip_interval_prompt
+
 if defined CHECKONLY (
     set "CHECKVBS=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SCP-079 Update Check.vbs"
     if exist "!CHECKVBS!" (

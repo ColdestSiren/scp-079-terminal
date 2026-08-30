@@ -47,6 +47,11 @@ Add later/
 # Personal tooling, not part of what people download. Publish.bat is the
 # one-click commit-and-push helper; it has no business being in the release.
 Publish.bat
+Repository Manager.bat
+Repository Manager.py
+Developer Tests.bat
+Build Publish Folder.ps1
+post to github/
 .publish-last.txt
 release.py
 

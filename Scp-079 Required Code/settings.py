@@ -56,6 +56,36 @@ WATCHDOG_PERCENT_CHOICES = [85, 90, 95, 98]
 # pins memory for longer than that on a slow disk.
 WATCHDOG_SECOND_CHOICES = [30, 60, 120, 300]
 
+UPDATE_INTERVAL_CHOICES = [
+    (0, "EVERY LAUNCH"),
+    (300, "5 MINUTES"),
+    (900, "15 MINUTES"),
+    (3600, "1 HOUR"),
+    (21600, "6 HOURS"),
+    (86400, "24 HOURS"),
+    (-1, "I'LL DO IT MYSELF"),
+]
+UPDATE_TOAST_CHOICES = [5, 10, 15, 30, 45, 60]
+MODEL_CHOICES = [
+    ("qwen3.6:latest", "QWEN 3.6 - HIGH RESOURCE"),
+    ("llama3.2:3b", "LLAMA 3.2 3B - BALANCED"),
+    ("llama3.2:1b", "LLAMA 3.2 1B - LOW RESOURCE"),
+]
+
+# Rows where [O] opens a guarded numeric editor. Each value names the unit the
+# player is typing; applying and range validation stay in _apply_custom below.
+CUSTOM_NUMERIC_ROWS = {
+    "MEMORY CAPACITY": "KILOBYTES",
+    "PROCESSOR": "GPU LAYERS",
+    "CONTEXT WINDOW": "TOKENS",
+    "REPLY LENGTH": "TOKENS",
+    "TEMPERATURE": "0.0 TO 2.0",
+    "WATCHDOG LIMIT": "PERCENT",
+    "WATCHDOG PATIENCE": "SECONDS",
+    "UPDATE CHECK INTERVAL": "HOURS",
+    "DESKTOP TOAST TIME": "SECONDS (5 TO 60)",
+}
+
 
 def _cycle(values, current, step):
     """Next/previous value, clamped rather than wrapped so holding a key does
@@ -74,11 +104,13 @@ DEFAULT_BODY_ROWS = 19
 
 
 class SettingsScreen:
-    def __init__(self, cfg, mem, theme, max_body_rows=DEFAULT_BODY_ROWS):
+    def __init__(self, cfg, mem, theme, max_body_rows=DEFAULT_BODY_ROWS,
+                 onboarding=False):
         self.cfg = cfg
         self.mem = mem
         self.theme = theme
         self.max_body_rows = max_body_rows
+        self.onboarding = bool(onboarding)
         self.cursor = 0
         self.message = None
         # set when a row changed something the app has to rebuild the video
@@ -92,6 +124,8 @@ class SettingsScreen:
         self.after_reset = None
         self.profile_index = 0
         self.save_slot = "SLOT 1"
+        self.custom_label = None
+        self.custom_buffer = ""
         self.rows = self._build_rows()
 
     # -- config accessors ---------------------------------------------------
@@ -104,7 +138,7 @@ class SettingsScreen:
     def _build_rows(self):
         """Row definitions. Each has a label, a value renderer, and a change
         handler that takes -1 or +1 (or None for action rows)."""
-        return [
+        rows = [
             ("MEMORY CAPACITY", self._val_quota, self._set_quota),
             ("FORMAT MEMORY", self._val_format, None),
             ("FACTORY RESET", self._val_reset, None),
@@ -137,6 +171,8 @@ class SettingsScreen:
             # and 079 has no part in it either way.
             ("UPDATE SOURCE", self._val_repo, None),
             ("CHECK FOR UPDATES", self._val_upcheck, self._set_upcheck),
+            ("UPDATE CHECK INTERVAL", self._val_upinterval, self._set_upinterval),
+            ("DESKTOP TOAST TIME", self._val_toasttime, self._set_toasttime),
             ("OFFER PRE-RELEASES", self._val_prerel, self._set_prerel),
             (None, None, None),
             # Settings are never rewritten behind your back; if you want an
@@ -145,6 +181,42 @@ class SettingsScreen:
             ("LOAD PROFILE", self._val_load, None),
             ("SAVE CURRENT AS", self._val_save, self._set_save_slot),
         ]
+        if self.onboarding:
+            rows[0:0] = [
+                ("OLLAMA MODEL", self._val_model, self._set_model),
+                ("INSTALL MODEL ON SAVE", self._val_install_model,
+                 self._set_install_model),
+                (None, None, None),
+            ]
+        return rows
+
+    def _val_model(self):
+        current = str(self.cfg.get("model", "llama3.2:3b"))
+        for value, label in MODEL_CHOICES:
+            if value == current:
+                return label
+        return current.upper()
+
+    def _set_model(self, step):
+        values = [value for value, _label in MODEL_CHOICES]
+        current = str(self.cfg.get("model", "llama3.2:3b"))
+        self.cfg["model"] = _cycle(values, current, step)
+        self.message = ("THE SELECTED MODEL CAN BE DOWNLOADED WHEN YOU SAVE.",
+                        "dim")
+
+    def _val_install_model(self):
+        enabled = self.cfg.setdefault("onboarding", {}).get(
+            "install_model_on_save", True)
+        return "YES" if enabled else "NO"
+
+    def _set_install_model(self, step):
+        block = self.cfg.setdefault("onboarding", {})
+        block["install_model_on_save"] = not block.get(
+            "install_model_on_save", True)
+        self.message = (("THE MODEL WILL BE CHECKED AND DOWNLOADED AFTER SAVE."
+                         if block["install_model_on_save"] else
+                         "MODEL DOWNLOAD SKIPPED. YOU CAN INSTALL IT LATER."),
+                        "dim")
 
     # -- profiles -----------------------------------------------------------
     def _profile_names(self):
@@ -407,6 +479,156 @@ class SettingsScreen:
                          if upd["check_on_start"]
                          else "WILL NOT CHECK. /update STILL WORKS."), "dim")
 
+    def _val_upinterval(self):
+        current = self._upd().get("check_interval_seconds", 300)
+        for seconds, label in UPDATE_INTERVAL_CHOICES:
+            if seconds == current:
+                return label
+        try:
+            seconds = max(0, int(current))
+        except (TypeError, ValueError):
+            seconds = 300
+        if seconds >= 3600:
+            hours = seconds / 3600.0
+            return "%g HOURS (CUSTOM)" % hours
+        if seconds >= 60:
+            return "%g MINUTES (CUSTOM)" % (seconds / 60.0)
+        return "%d SECONDS (CUSTOM)" % seconds
+
+    def _set_upinterval(self, step):
+        upd = self._upd()
+        values = [seconds for seconds, _label in UPDATE_INTERVAL_CHOICES]
+        current = upd.get("check_interval_seconds", 300)
+        if current in values:
+            upd["check_interval_seconds"] = _cycle(values, current, step)
+        else:
+            normal = sorted(value for value in values if value >= 0)
+            try:
+                current = int(current)
+            except (TypeError, ValueError):
+                current = 300
+            choices = ([value for value in normal if value < current]
+                       if step < 0 else
+                       [value for value in normal if value > current])
+            if choices:
+                upd["check_interval_seconds"] = (max(choices) if step < 0
+                                                  else min(choices))
+            else:
+                upd["check_interval_seconds"] = -1 if step > 0 else normal[0]
+        self.message = ("AUTOMATIC CHECK FREQUENCY CHANGED. /update IS IMMEDIATE.",
+                        "dim")
+
+    def _val_toasttime(self):
+        return "%d SECONDS" % max(5, min(
+            60, int(self._upd().get("desktop_toast_seconds", 15))))
+
+    def _set_toasttime(self, step):
+        upd = self._upd()
+        current = max(5, min(60, int(upd.get("desktop_toast_seconds", 15))))
+        upd["desktop_toast_seconds"] = _cycle(
+            UPDATE_TOAST_CHOICES, current, step)
+        self.message = ("DESKTOP NOTIFICATION DISPLAY TIME CHANGED.", "dim")
+
+    # -- custom numeric entry ----------------------------------------------
+    def begin_custom(self):
+        label = self.rows[self.cursor][0]
+        unit = CUSTOM_NUMERIC_ROWS.get(label)
+        if unit is None:
+            self.message = ("THIS OPTION USES FIXED CHOICES.", "dim")
+            return False
+        self.custom_label = label
+        self.custom_buffer = ""
+        self.message = ("CUSTOM %s -- TYPE %s." % (label, unit), "warn")
+        return True
+
+    def cancel_custom(self):
+        self.custom_label = None
+        self.custom_buffer = ""
+        self.message = ("CUSTOM VALUE CANCELLED.", "dim")
+
+    def custom_backspace(self):
+        self.custom_buffer = self.custom_buffer[:-1]
+
+    def custom_type(self, text):
+        if self.custom_label is None:
+            return
+        for char in str(text):
+            if len(self.custom_buffer) >= 12:
+                break
+            if char in "0123456789.-":
+                self.custom_buffer += char
+
+    def _custom_number(self):
+        value = float(self.custom_buffer)
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError
+        return value
+
+    def apply_custom(self):
+        label = self.custom_label
+        try:
+            value = self._custom_number()
+            if label == "MEMORY CAPACITY":
+                target = int(value * 1024)
+                if not store.MIN_BYTES <= target <= store.MAX_BYTES:
+                    raise ValueError
+                self.mem.set_quota(target)
+            elif label == "PROCESSOR":
+                if not 0 <= value <= 999:
+                    raise ValueError
+                self._ol()["num_gpu"] = int(value)
+            elif label == "CONTEXT WINDOW":
+                if not 512 <= value <= 131072:
+                    raise ValueError
+                self._ol()["num_ctx"] = int(value)
+            elif label == "REPLY LENGTH":
+                if not 1 <= value <= 4096:
+                    raise ValueError
+                self._ol()["num_predict"] = int(value)
+            elif label == "TEMPERATURE":
+                if not 0.0 <= value <= 2.0:
+                    raise ValueError
+                self._ol()["temperature"] = round(value, 2)
+            elif label == "WATCHDOG LIMIT":
+                if not 50 <= value <= 100:
+                    raise ValueError
+                self._wd()["threshold_percent"] = int(value)
+            elif label == "WATCHDOG PATIENCE":
+                if not 1 <= value <= 3600:
+                    raise ValueError
+                self._wd()["seconds"] = int(value)
+            elif label == "UPDATE CHECK INTERVAL":
+                if value < 0:
+                    raise ValueError
+                if value > 24:
+                    self._upd()["check_interval_seconds"] = -1
+                    # Future audio hook: play "Fine, I'll do it myself" when
+                    # the requested sound asset is added to the project.
+                    self.message = ("I'LL DO IT MYSELF. AUTOMATIC CHECKS DISABLED.",
+                                    "warn")
+                    self.custom_label = None
+                    self.custom_buffer = ""
+                    return True
+                self._upd()["check_interval_seconds"] = int(value * 3600)
+            elif label == "DESKTOP TOAST TIME":
+                if not 5 <= value <= 60:
+                    raise ValueError
+                self._upd()["desktop_toast_seconds"] = int(value)
+            else:
+                raise ValueError
+        except store.FormatRequired:
+            self.message = ("MEMORY MUST BE FORMATTED BEFORE CAPACITY CHANGES.",
+                            "alarm")
+            return False
+        except (TypeError, ValueError, OverflowError):
+            self.message = ("INVALID OR OUT-OF-RANGE CUSTOM VALUE.", "alarm")
+            return False
+
+        self.custom_label = None
+        self.custom_buffer = ""
+        self.message = ("CUSTOM VALUE SAVED.", "system")
+        return True
+
     def _val_prerel(self):
         return "ON" if self._upd().get("allow_prerelease", False) else "OFF"
 
@@ -471,6 +693,8 @@ class SettingsScreen:
         return [i for i, (label, _, _) in enumerate(self.rows) if label is not None]
 
     def move(self, delta):
+        if self.custom_label is not None:
+            return
         options = self._selectable()
         if self.cursor not in options:
             self.cursor = options[0]
@@ -594,7 +818,8 @@ class SettingsScreen:
         c = self.theme
         out = [
             [(c["dim"], "  ============================")],
-            [(c["bright"], "       TERMINAL SETTINGS")],
+            [(c["bright"], "       CONFIGURE THIS PC" if self.onboarding
+              else "       TERMINAL SETTINGS")],
             [(c["dim"], "  ============================")],
             [(c["text"], "")],
         ]
@@ -614,6 +839,8 @@ class SettingsScreen:
                                         and label == "FORMAT MEMORY") else \
                 (c["text"] if selected else c["dim"])
             arrows = "  <  >" if (selected and handler is not None) else ""
+            if selected and label in CUSTOM_NUMERIC_ROWS:
+                arrows += "  [O] CUSTOM"
             out.append([
                 (c["bright"] if selected else c["dim"], "   %s " % marker),
                 (name_color, "%-22s" % label),
@@ -624,10 +851,19 @@ class SettingsScreen:
         if last < len(self.rows):
             out.append([(c["dim"], "        v MORE BELOW")])
         out.append([(c["text"], "")])
-        if self.message:
+        if self.custom_label is not None:
+            typed = self.custom_buffer or "_"
+            out.append([(c["warn"], "   CUSTOM %s: %s" %
+                         (self.custom_label, typed))])
+            out.append([(c["dim"], "   [ENTER] SAVE   [ESC] CANCEL")])
+            out.append([(c["text"], "")])
+        elif self.message:
             text, color = self.message
             out.append([(c.get(color, c["system"]), "   " + text)])
             out.append([(c["text"], "")])
-        out.append([(c["dim"], "   [UP/DOWN] SELECT   [LEFT/RIGHT] CHANGE   "
-                               "[ENTER] APPLY   [B] BACK")])
+        footer = ("   [UP/DOWN] SELECT   [LEFT/RIGHT] CHANGE   [O] CUSTOM   "
+                  "[S] SAVE   [ESC] SKIP" if self.onboarding else
+                  "   [UP/DOWN] SELECT   [LEFT/RIGHT] CHANGE   [O] CUSTOM   "
+                  "[ENTER] APPLY   [B] BACK")
+        out.append([(c["dim"], footer)])
         return out

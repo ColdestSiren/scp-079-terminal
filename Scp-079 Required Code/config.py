@@ -81,6 +81,11 @@ DEFAULTS = {
     "theme": "phosphor_green",
     "history_limit": 20,
 
+    "onboarding": {
+        "first_launch_complete": False,
+        "install_model_on_save": True,
+    },
+
     "window": {
         "fullscreen": False,
         "title": "SCP-079 // CONTAINMENT TERMINAL",
@@ -342,6 +347,13 @@ DEFAULTS = {
         # Look once, in the background, while the menu is up. Failures are
         # silent - no network is not an error worth interrupting anyone over.
         "check_on_start": True,
+        # Minimum time between automatic menu checks. A manual /update always
+        # checks immediately. Kept in config so players can choose the balance
+        # between prompt discovery and avoiding repeated network requests.
+        "check_interval_seconds": 300,
+        # How long the optional Windows desktop notification remains visible.
+        # updatecheck.py clamps hand-edited values to 5..60 seconds too.
+        "desktop_toast_seconds": 15,
         # Offer releases marked "pre-release" on GitHub. Off, because a
         # pre-release is by definition not the one to hand a friend.
         "allow_prerelease": False,
@@ -390,7 +402,7 @@ def _deep_merge(base, override):
 # So: bad defaults are corrected here, and ONLY when the saved value still
 # matches exactly what the old build wrote. Anything the player deliberately
 # changed does not match, and is left alone.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _MIGRATIONS = {
     # (path, value_written_by_the_old_build, corrected_value, why)
@@ -421,6 +433,11 @@ _MIGRATIONS = {
         (("memory", "lock_files"), False, True,
          "memory files are share-read locked by default while the terminal "
          "is running; closing it releases every handle"),
+    ],
+    6: [
+        (("onboarding", "first_launch_complete"), False, True,
+         "existing installations already made their setup choices; only a "
+         "genuinely new config should show first-launch onboarding"),
     ],
 }
 
@@ -475,7 +492,8 @@ def load():
     to report an error with.
     """
     saved = {}
-    if os.path.isfile(CONFIG_PATH):
+    fresh = not os.path.isfile(CONFIG_PATH)
+    if not fresh:
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
                 saved = json.load(fh)
@@ -484,7 +502,11 @@ def load():
     cfg = _deep_merge(DEFAULTS, saved)
     # Write back if the file is new OR if a known-bad saved value was just
     # corrected, so the fix survives instead of being re-applied every launch.
-    if _migrate(cfg) or not os.path.isfile(CONFIG_PATH):
+    changed = _migrate(cfg)
+    if fresh:
+        cfg.setdefault("onboarding", {})["first_launch_complete"] = False
+        changed = True
+    if changed or fresh:
         save(cfg)
     return cfg
 

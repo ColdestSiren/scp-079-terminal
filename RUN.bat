@@ -131,6 +131,11 @@ REM ============================================================
 REM Launch SCP-079.
 REM ============================================================
 
+if /i "%~1"=="--test-update-toast" (
+    "%PYEXE%" %PYARGS% "%~dp0Scp-079 Required Code\updatecheck.py" --test-toast
+    exit /b !errorlevel!
+)
+
 "%PYEXE%" %PYARGS% "%MAIN%" %*
 set "RC=!errorlevel!"
 
